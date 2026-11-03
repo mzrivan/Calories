@@ -18,7 +18,7 @@ repositories {
 }
 
 ext {
-    langchain4jVersion = '1.3.0'
+    langchain4jVersion = '1.23.0'
     telegramVersion = '8.3.0'
 }
 

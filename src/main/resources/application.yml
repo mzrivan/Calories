@@ -40,8 +40,8 @@ app:
     embedding-dimensions: ${EMBEDDING_DIMENSIONS:768}
     temperature: 0.2
     max-tool-calls: 6
-    retries: 3
-    retry-initial-delay-ms: 1000
+    retries: ${LLM_RETRIES:5}
+    retry-initial-delay-ms: ${LLM_RETRY_DELAY_MS:2000}
   agent:
     history-messages: 10
     history-minutes: 60
