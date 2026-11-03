@@ -1,0 +1,65 @@
+spring:
+  application:
+    name: calorie-bot
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/calories}
+    username: ${DB_USER:calorie_app}
+    password: ${DB_PASSWORD:}
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/calories}
+    # миграции идут под ролью-владельцем, приложение работает под ограниченной ролью без DELETE
+    user: ${DB_MIGRATION_USER:${DB_USER:calorie_app}}
+    password: ${DB_MIGRATION_PASSWORD:${DB_PASSWORD:}}
+    parameters:
+      embeddingDimensions: ${EMBEDDING_DIMENSIONS:768}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  telegram:
+    enabled: ${TELEGRAM_ENABLED:true}
+    token: ${TELEGRAM_BOT_TOKEN:}
+  # whitelist: только эти telegram_id (и только если пользователь active в БД)
+  allowed-telegram-ids: ${ALLOWED_TELEGRAM_IDS:}
+  llm:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-001}
+    embedding-dimensions: ${EMBEDDING_DIMENSIONS:768}
+    temperature: 0.2
+    max-tool-calls: 6
+    retries: 3
+    retry-initial-delay-ms: 1000
+  agent:
+    history-messages: 10
+    history-minutes: 60
+    rate-limit-per-minute: 10
+    max-validation-retries: 2
+  validation:
+    max-kcal-per-100g: 900
+    max-macro-per-100g: 100
+    max-macro-sum-per-100g: 105
+    atwater-tolerance: 0.15
+    atwater-min-abs-kcal: 8
+    max-grams: 5000
+    max-cooked-weight-g: 50000
+    min-cooked-ratio: 0.2
+    max-cooked-ratio: 3.0
+  search:
+    trgm-threshold: 0.3
+    vector-threshold: 0.7
+    top-k: 5
+  drafts:
+    ttl-hours: 24

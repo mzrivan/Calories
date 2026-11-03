@@ -1,0 +1,136 @@
+package kz.calories.bot;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
+import kz.calories.agent.AgentContext;
+import kz.calories.agent.AgentReply;
+import kz.calories.config.AppProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
+import org.telegram.telegrambots.longpolling.starter.SpringLongPollingBot;
+import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.message.Message;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow;
+import org.telegram.telegrambots.meta.generics.TelegramClient;
+
+/** Тонкий слой над Telegram API (long polling): вся логика в MessageRouter. */
+@Component
+@ConditionalOnProperty(name = "app.telegram.enabled", havingValue = "true", matchIfMissing = true)
+public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThreadUpdateConsumer {
+
+    private static final Logger log = LoggerFactory.getLogger(CalorieBot.class);
+    private static final int TG_LIMIT = 4000;
+
+    private final String token;
+    private final TelegramClient client;
+    private final MessageRouter router;
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    /** Сообщения одного человека обрабатываются по порядку, разные люди — параллельно. */
+    private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
+
+    public CalorieBot(AppProperties props, MessageRouter router) {
+        this.token = props.telegram().token();
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("Не задан TELEGRAM_BOT_TOKEN");
+        }
+        this.client = new OkHttpTelegramClient(token);
+        this.router = router;
+    }
+
+    @Override
+    public String getBotToken() {
+        return token;
+    }
+
+    @Override
+    public org.telegram.telegrambots.longpolling.interfaces.LongPollingUpdateConsumer getUpdatesConsumer() {
+        return this;
+    }
+
+    @Override
+    public void consume(Update update) {
+        Long userId = null;
+        if (update.hasMessage() && update.getMessage().hasText() && update.getMessage().getFrom() != null) {
+            userId = update.getMessage().getFrom().getId();
+        } else if (update.hasCallbackQuery()) {
+            userId = update.getCallbackQuery().getFrom().getId();
+        }
+        if (userId == null) {
+            return; // не текст (фото, голос и т.д.) — не обрабатываем
+        }
+        long uid = userId;
+        executor.submit(() -> {
+            ReentrantLock lock = locks.computeIfAbsent(uid, k -> new ReentrantLock());
+            lock.lock();
+            try {
+                if (update.hasCallbackQuery()) {
+                    onCallback(update.getCallbackQuery());
+                } else {
+                    onMessage(update.getMessage());
+                }
+            } catch (Exception e) {
+                log.error("Ошибка обработки обновления", e);
+            } finally {
+                lock.unlock();
+            }
+        });
+    }
+
+    private void onMessage(Message m) throws Exception {
+        var from = m.getFrom();
+        var reply = router.handleText(from.getId(), from.getFirstName(), m.getText());
+        if (reply.isEmpty()) {
+            return; // чужой или неактивный — игнорируем молча
+        }
+        AgentReply r = reply.get();
+        for (String chunk : split(r.text())) {
+            client.execute(SendMessage.builder().chatId(m.getChatId()).text(chunk).build());
+        }
+        for (AgentContext.DraftCard card : r.cards()) {
+            InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
+                    .keyboardRow(new InlineKeyboardRow(
+                            InlineKeyboardButton.builder().text("✅ Сохранить").callbackData("save:" + card.draftId()).build(),
+                            InlineKeyboardButton.builder().text("❌ Отмена").callbackData("cancel:" + card.draftId()).build()))
+                    .build();
+            client.execute(SendMessage.builder().chatId(m.getChatId()).text(card.text()).replyMarkup(kb).build());
+        }
+    }
+
+    private void onCallback(CallbackQuery cb) throws Exception {
+        var result = router.handleCallback(cb.getFrom().getId(), cb.getFrom().getFirstName(), cb.getData());
+        if (result.isEmpty()) {
+            return;
+        }
+        client.execute(AnswerCallbackQuery.builder().callbackQueryId(cb.getId())
+                .text(result.get().toast() == null ? "" : result.get().toast()).build());
+        if (result.get().newText() != null && cb.getMessage() != null) {
+            client.execute(EditMessageText.builder().chatId(cb.getMessage().getChatId())
+                    .messageId(cb.getMessage().getMessageId()).text(result.get().newText()).build());
+        }
+    }
+
+    static List<String> split(String text) {
+        if (text.length() <= TG_LIMIT) {
+            return List.of(text);
+        }
+        List<String> parts = new java.util.ArrayList<>();
+        for (int i = 0; i < text.length(); i += TG_LIMIT) {
+            parts.add(text.substring(i, Math.min(text.length(), i + TG_LIMIT)));
+        }
+        return parts;
+    }
+}

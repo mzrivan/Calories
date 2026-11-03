@@ -1,0 +1,52 @@
+stages: [build, test, image]
+
+default:
+  image: eclipse-temurin:21-jdk
+  cache:
+    key: gradle
+    paths: [.gradle/caches, .gradle/wrapper]
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+build:
+  stage: build
+  script:
+    - chmod +x gradlew
+    - ./gradlew --no-daemon bootJar -x test
+  artifacts:
+    paths: [build/libs/*.jar]
+    expire_in: 1 week
+
+# Интеграционные тесты используют Testcontainers: нужен Docker-in-Docker
+test:
+  stage: test
+  image: eclipse-temurin:21-jdk
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TESTCONTAINERS_HOST_OVERRIDE: docker
+  script:
+    - chmod +x gradlew
+    - ./gradlew --no-daemon test
+  artifacts:
+    when: always
+    reports:
+      junit: build/test-results/test/*.xml
+
+docker-image:
+  stage: image
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:latest" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

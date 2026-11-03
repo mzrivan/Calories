@@ -1,0 +1,16 @@
+[Unit]
+Description=Calorie bot (Telegram + Spring Boot)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=caloriebot
+WorkingDirectory=/opt/calorie-bot
+EnvironmentFile=/etc/calorie-bot/calorie-bot.env
+ExecStart=/usr/bin/java -Xmx384m -jar /opt/calorie-bot/calorie-bot.jar
+Restart=always
+RestartSec=10
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target
