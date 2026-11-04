@@ -61,7 +61,11 @@ app:
   drafts:
     ttl-hours: 24
   energy:
-    # всего = BMR × tef-factor + шаги; длина шага = рост × step-length-factor; ккал шагов = walk-kcal-per-kg-km × кг × км
-    tef-factor: 1.1
+    # всего = BMR + ТЭП + шаги + активности; ТЭП = доли от калорийности съеденных белков/углеводов/жиров за день
+    # (середины диапазонов: белок 20–30%, углеводы 5–10%, жиры 0–3%)
+    # длина шага = рост × step-length-factor; ккал шагов = walk-kcal-per-kg-km × кг × км
+    tef-protein: 0.25
+    tef-carbs: 0.075
+    tef-fat: 0.015
     step-length-factor: 0.415
     walk-kcal-per-kg-km: 0.5

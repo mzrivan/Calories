@@ -27,7 +27,8 @@ public record AppProperties(
 
     public record Search(double trgmThreshold, double approxThreshold, double approxGap, int topK) {}
 
-    public record Energy(double tefFactor, double stepLengthFactor, double walkKcalPerKgKm) {}
+    public record Energy(double tefProtein, double tefCarbs, double tefFat,
+                         double stepLengthFactor, double walkKcalPerKgKm) {}
 
     public record Drafts(int ttlHours) {}
 

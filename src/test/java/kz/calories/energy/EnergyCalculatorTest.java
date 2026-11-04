@@ -4,11 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 import kz.calories.config.AppProperties;
+import kz.calories.validation.Nutrition;
 import org.junit.jupiter.api.Test;
 
 class EnergyCalculatorTest {
 
-    private final EnergyCalculator calc = new EnergyCalculator(new AppProperties.Energy(1.1, 0.415, 0.5));
+    private final EnergyCalculator calc = new EnergyCalculator(new AppProperties.Energy(0.25, 0.075, 0.015, 0.415, 0.5));
 
     @Test
     void mifflinStJeorMale() {
@@ -23,8 +24,10 @@ class EnergyCalculatorTest {
     }
 
     @Test
-    void baseExpenditureAddsTef() {
-        assertThat(calc.baseExpenditure(1780)).isCloseTo(1958, within(0.001));
+    void tefFromMacros() {
+        // 100*4*0.25 + 250*4*0.075 + 60*9*0.015 = 100 + 75 + 8.1
+        assertThat(calc.tef(new Nutrition(2000, 100, 60, 250, null))).isCloseTo(183.1, within(0.001));
+        assertThat(calc.tef(Nutrition.ZERO)).isZero();
     }
 
     @Test

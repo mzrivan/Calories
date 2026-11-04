@@ -1,6 +1,7 @@
 package kz.calories.energy;
 
 import kz.calories.config.AppProperties;
+import kz.calories.validation.Nutrition;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -24,9 +25,14 @@ public class EnergyCalculator {
         return 10 * weightKg + 6.25 * heightCm - 5 * age + ("M".equals(sex) ? 5 : -161);
     }
 
-    /** Основной обмен с надбавкой на термический эффект пищи и бытовую активность. */
-    public double baseExpenditure(double bmr) {
-        return bmr * cfg.tefFactor();
+    /**
+     * Термический эффект пищи (ТЭП) по съеденным за день макронутриентам: доля от калорийности каждого
+     * (белок 4, углеводы 4, жиры 9 ккал/г). Коэффициенты активности не используются, двойного учёта нет.
+     */
+    public double tef(Nutrition eaten) {
+        return eaten.protein() * 4 * cfg.tefProtein()
+                + eaten.carbs() * 4 * cfg.tefCarbs()
+                + eaten.fat() * 9 * cfg.tefFat();
     }
 
     /** Чистый расход на ходьбу: длина шага = рост × коэффициент; ккал = k × кг × км. */
