@@ -6,10 +6,11 @@ import java.util.List;
 /**
  * Расход и баланс за день. spent == null — посчитать нельзя (см. missing).
  * stepsKcal == null при заданном spent — шагов нет, расход неполный (только обмен).
- * baseKcal = BMR × надбавка (термический эффект пищи, бытовая активность).
+ * tefKcal — термический эффект съеденной за день пищи (по белкам/углеводам/жирам).
  */
 public record DayBalance(LocalDate day, double eatenKcal, Double weightKg, Integer steps, Double bmrKcal,
-                         Double baseKcal, Double stepsKcal, Double spent, List<String> missing) {
+                         Double tefKcal, Double stepsKcal, double activityKcal, List<ActivityRepository.Entry> activities,
+                         Double spent, List<String> missing) {
 
     public boolean known() {
         return spent != null;

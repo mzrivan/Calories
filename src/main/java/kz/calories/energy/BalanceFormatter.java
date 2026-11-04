@@ -11,11 +11,19 @@ public final class BalanceFormatter {
             return "Расход не посчитать — не хватает данных. Напишите — " + String.join("; ", b.missing()) + ".";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("Расход: ").append(num(b.spent())).append(" ккал (обмен ").append(num(b.baseKcal()));
+        sb.append("Расход: ").append(num(b.spent())).append(" ккал (обмен ").append(num(b.bmrKcal()))
+                .append(" + переваривание пищи ").append(num(b.tefKcal()));
         if (b.stepsKcal() != null) {
             sb.append(" + шаги ").append(num(b.stepsKcal())).append(", ").append(b.steps()).append(" шагов");
         }
+        if (!b.activities().isEmpty()) {
+            sb.append(" + активность ").append(num(b.activityKcal()));
+        }
         sb.append(")\n");
+        for (ActivityRepository.Entry a : b.activities()) {
+            sb.append("• ").append(a.name()).append(", ").append(num(a.minutes())).append(" мин — ")
+                    .append(num(a.kcal())).append(" ккал (id=").append(a.id()).append(")\n");
+        }
         double diff = Math.round(b.diff() * 10.0) / 10.0;
         sb.append("Съедено ").append(num(b.eatenKcal())).append(" ккал · Баланс: ")
                 .append(diff > 0 ? "+" : "").append(num(diff)).append(" ккал (")

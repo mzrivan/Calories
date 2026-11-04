@@ -17,6 +17,9 @@ import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.starter.SpringLongPollingBot;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
@@ -39,6 +42,8 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
 
     private static final Logger log = LoggerFactory.getLogger(CalorieBot.class);
     private static final int TG_LIMIT = 4000;
+    private static final int SEND_ATTEMPTS = 5;
+    private static final long SEND_BASE_DELAY_MS = 1000; // 1, 2, 4, 8 с
 
     private final String token;
     private final TelegramClient client;
@@ -96,6 +101,43 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
         });
     }
 
+    /**
+     * Отправка в Telegram с повтором при сетевых сбоях (нет сети, таймаут). Ответы API с ошибкой
+     * (TelegramApiRequestException: 400/403 и т.п.) не повторяются — результат был бы тот же.
+     */
+    private <T extends java.io.Serializable, M extends BotApiMethod<T>> T send(M method) throws TelegramApiException {
+        TelegramApiException last = null;
+        for (int attempt = 1; attempt <= SEND_ATTEMPTS; attempt++) {
+            try {
+                return client.execute(method);
+            } catch (TelegramApiRequestException e) {
+                throw e;
+            } catch (TelegramApiException e) {
+                last = e;
+                if (attempt == SEND_ATTEMPTS) {
+                    break;
+                }
+                long delayMs = SEND_BASE_DELAY_MS << (attempt - 1);
+                log.warn("Telegram недоступен ({}), повтор {}/{} через {} мс", rootMessage(e), attempt,
+                        SEND_ATTEMPTS - 1, delayMs);
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+        throw last;
+    }
+
+    private static String rootMessage(Throwable t) {
+        while (t.getCause() != null) {
+            t = t.getCause();
+        }
+        return t.toString();
+    }
+
     private void onMessage(Message m) throws Exception {
         var from = m.getFrom();
         var reply = router.handleText(from.getId(), from.getFirstName(), m.getText());
@@ -115,7 +157,7 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
             } else if (last && showMenu) {
                 msg.replyMarkup(menu());
             }
-            client.execute(msg.build());
+            send(msg.build());
         }
         for (AgentContext.DraftCard card : r.cards()) {
             InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
@@ -124,7 +166,7 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
                                     .callbackData(card.confirmPrefix() + ":" + card.draftId()).build(),
                             InlineKeyboardButton.builder().text("❌ Отмена").callbackData(card.cancelPrefix() + ":" + card.draftId()).build()))
                     .build();
-            client.execute(SendMessage.builder().chatId(m.getChatId()).text(card.text()).replyMarkup(kb).build());
+            send(SendMessage.builder().chatId(m.getChatId()).text(card.text()).replyMarkup(kb).build());
         }
     }
 
@@ -159,10 +201,10 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
         if (result.isEmpty()) {
             return;
         }
-        client.execute(AnswerCallbackQuery.builder().callbackQueryId(cb.getId())
+        send(AnswerCallbackQuery.builder().callbackQueryId(cb.getId())
                 .text(result.get().toast() == null ? "" : result.get().toast()).build());
         if (result.get().newText() != null && cb.getMessage() != null) {
-            client.execute(EditMessageText.builder().chatId(cb.getMessage().getChatId())
+            send(EditMessageText.builder().chatId(cb.getMessage().getChatId())
                     .messageId(cb.getMessage().getMessageId()).text(result.get().newText()).build());
         }
     }

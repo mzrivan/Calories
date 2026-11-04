@@ -3,6 +3,7 @@ package kz.calories.energy;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -42,6 +43,45 @@ public class ActivityRepository {
                     updated_at = now()""")
                 .param("u", userId).param("d", day).param("w", weightKg).param("s", steps)
                 .param("b", bmr).param("sk", stepsKcal).param("t", total).update();
+    }
+
+    /** Произвольная активность; kcal — чистый расход сверх основного обмена. */
+    public record Entry(long id, LocalDate day, String name, double minutes, Double met, double kcal, String confidence,
+                        String assumptions) {}
+
+    public Entry addEntry(long userId, LocalDate day, String name, double minutes, Double met, double kcal,
+                          String confidence, String assumptions) {
+        return jdbc.sql("""
+                insert into activity_entry (user_id, day, name, minutes, met, kcal, confidence, assumptions)
+                values (:u, :d, :n, :m, :met, :k, :c, :a)
+                returning id, day, name, minutes, met, kcal, confidence, assumptions""")
+                .param("u", userId).param("d", day).param("n", name).param("m", minutes).param("met", met)
+                .param("k", kcal).param("c", confidence).param("a", assumptions)
+                .query(this::mapEntry).single();
+    }
+
+    public List<Entry> entriesOfDay(long userId, LocalDate day) {
+        return jdbc.sql("""
+                select id, day, name, minutes, met, kcal, confidence, assumptions from activity_entry
+                where user_id = :u and day = :d and active order by id""")
+                .param("u", userId).param("d", day).query(this::mapEntry).list();
+    }
+
+    /** Мягкое удаление своей записи; false — записи нет или она чужая/уже удалена. */
+    public Optional<Entry> deactivateEntry(long userId, long id) {
+        return jdbc.sql("""
+                update activity_entry set active = false, deactivated_at = now()
+                where id = :id and user_id = :u and active
+                returning id, day, name, minutes, met, kcal, confidence, assumptions""")
+                .param("id", id).param("u", userId).query(this::mapEntry).optional();
+    }
+
+    private Entry mapEntry(ResultSet rs, int i) throws SQLException {
+        double met = rs.getDouble("met");
+        Double metBox = rs.wasNull() ? null : met;
+        return new Entry(rs.getLong("id"), rs.getObject("day", LocalDate.class), rs.getString("name"),
+                rs.getDouble("minutes"), metBox, rs.getDouble("kcal"), rs.getString("confidence"),
+                rs.getString("assumptions"));
     }
 
     private Row map(ResultSet rs, int i) throws SQLException {

@@ -341,10 +341,56 @@ public class AgentTools {
 
     // ------------------------------------------------------------------ вес, шаги, профиль
 
+    @Tool(name = "log_activity", value = "Записывает произвольную физическую активность (уборка, зал, плавание, прогулка с собакой и т.п.) "
+            + "и её расход. Предпочтительно передай met — коэффициент интенсивности по Compendium of Physical Activities "
+            + "(напр. уборка 3.0–3.5, силовая средней интенсивности 5.0, бег 8 км/ч ≈ 8.3, плавание умеренное 5.8); код сам посчитает "
+            + "чистый расход = (met−1) × вес × часы по весу пользователя. Если пользователь сам назвал сожжённые ккал "
+            + "(например с часов) — передай kcal, это ЧИСТЫЙ расход сверх основного обмена. "
+            + "НЕ записывай обычную ходьбу, если за день учитываются шаги (двойной счёт). Можно вызывать несколько раз за ход — по одной активности.")
+    public String logActivity(@P("название активности по-русски, коротко") String name,
+                              @P("длительность, минут") Double minutes,
+                              @P(value = "MET активности, 1–20", required = false) Double met,
+                              @P(value = "чистый расход, ккал — только если назвал пользователь", required = false) Double kcal,
+                              @P(value = "LOW, MEDIUM или HIGH", required = false) String confidence,
+                              @P(value = "допущения оценки (интенсивность, источник MET)", required = false) String assumptions,
+                              @P(value = "дата YYYY-MM-DD, пусто = сегодня", required = false) String date) {
+        return run(() -> {
+            if (minutes == null) {
+                return "Ошибка: нужна длительность в минутах (если не названа — уточни у пользователя).";
+            }
+            LocalDate day = date == null || date.isBlank() ? meals.today(user) : parseDate(date);
+            var e = activity.logActivity(user, day, name, minutes, met, kcal, normConfidence(confidence),
+                    assumptions == null || assumptions.isBlank() ? null : assumptions.trim());
+            ctx.markWrote();
+            ctx.showBalance(day);
+            return String.format(Locale.ROOT, "Записано: id=%d «%s», %s мин, %s ккал%s. Блок «Расход и баланс» бот добавит сам, цифры не пересказывай.",
+                    e.id(), e.name(), SummaryFormatter.num(e.minutes()), SummaryFormatter.num(e.kcal()),
+                    e.met() == null ? "" : " (MET " + SummaryFormatter.num(e.met()) + ")");
+        });
+    }
+
+    @Tool(name = "deactivate_activity", value = "Мягко убирает СВОЮ активность по id (id виден в блоке «Расход и баланс» и в ответе log_activity).")
+    public String deactivateActivity(@P("id активности") Long id) {
+        return run(() -> {
+            if (id == null) {
+                return "Ошибка: нужен id активности.";
+            }
+            var e = activity.deactivateActivity(user, id);
+            if (e.isEmpty()) {
+                return "Ошибка: активность с таким id не найдена.";
+            }
+            ctx.markWrote();
+            ctx.showBalance(e.get().day());
+            return "Активность убрана: " + e.get().name() + ".";
+        });
+    }
+
     @Tool(name = "record_activity", value = "Записывает вес (кг) и/или шаги за день и пересчитывает расход калорий (формулы в коде). "
-            + "Можно обновлять в течение дня. Дата YYYY-MM-DD, пусто = сегодня.")
+            + "Шаги ЗАМЕНЯЮТ прежнее значение за день, а не прибавляются: передавай ИТОГОВОЕ число шагов за день на сейчас "
+            + "(если пользователь пишет «итого 10000» — 10000; если пишет «ещё 3000» — прежнее значение + 3000, "
+            + "прежнее возьми из блока расхода или спроси). Дата YYYY-MM-DD, пусто = сегодня.")
     public String recordActivity(@P(value = "вес, кг", required = false) Double weightKg,
-                                 @P(value = "шаги за день", required = false) Integer steps,
+                                 @P(value = "ИТОГО шагов за день (заменяет прежнее значение)", required = false) Integer steps,
                                  @P(value = "дата YYYY-MM-DD", required = false) String date) {
         return run(() -> {
             if (weightKg == null && steps == null) {

@@ -64,7 +64,7 @@ public class AgentService {
         int attempts = Math.max(1, props.llm().retries());
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                answer = llm.chat(SystemPrompt.build(user), history, text, tools, props.llm().maxToolCalls()).text();
+                answer = llm.chat(SystemPrompt.build(user, promptParams(user)), history, text, tools, props.llm().maxToolCalls()).text();
                 failed = false;
                 break;
             } catch (RuntimeException e) {
@@ -98,6 +98,17 @@ public class AgentService {
         String out = reply.toString();
         chat.save(user.id(), false, out);
         return new AgentReply(out, ctx.cards());
+    }
+
+    private SystemPrompt.Params promptParams(AppUser user) {
+        try {
+            var day = meals.today(user);
+            var b = activity.balance(user, day);
+            return new SystemPrompt.Params(b.weightKg(), b.steps());
+        } catch (RuntimeException e) {
+            log.warn("Не удалось собрать параметры пользователя для промпта: {}", e.toString());
+            return SystemPrompt.Params.NONE;
+        }
     }
 
     private boolean allow(long userId) {
