@@ -6,6 +6,5 @@ create role calorie_app   login password :app_password;
 create database calories owner calorie_owner;
 \connect calories
 create extension if not exists pg_trgm;
-create extension if not exists vector;
 grant connect on database calories to calorie_app;
 grant usage on schema public to calorie_app;

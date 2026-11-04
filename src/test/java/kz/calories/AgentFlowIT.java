@@ -20,6 +20,8 @@ class AgentFlowIT extends IntegrationTestBase {
     MessageRouter router;
     @Autowired
     DishService dishes;
+    @Autowired
+    kz.calories.dish.DishMatcher matcher;
 
     private AgentReply say(long tg, String text) {
         return router.handleText(tg, "User" + tg, text).orElseThrow();
@@ -46,7 +48,7 @@ class AgentFlowIT extends IntegrationTestBase {
             AgentTools tools = (AgentTools) t;
             return tools.logMeal(v1.id(), 300.0, null);
         };
-        AgentReply first = say(1001, "съел 300 г борща");
+        AgentReply first = say(1001, "съел борщ (300 г)"); // скобки → разбор моделью
         assertThat(first.text()).contains("Итого за сегодня");
         double kcalBefore = jdbc.sql("select kcal from meal_entry where dish_version_id = :v").param("v", v1.id())
                 .query(Double.class).single();
@@ -54,7 +56,7 @@ class AgentFlowIT extends IntegrationTestBase {
         long d2 = saveBorscht(1001, 2200, 4000, "версия 2");
         DishVersion v2 = dishes.confirmDraft(d2, userId(1001));
         assertThat(dishes.latestActive("борщ").orElseThrow().id()).isEqualTo(v2.id());
-        assertThat(dishes.search("борщ").get(0).version().id()).isEqualTo(v2.id());
+        assertThat(matcher.match("борщ").version().id()).isEqualTo(v2.id());
 
         double kcalAfter = jdbc.sql("select kcal from meal_entry where dish_version_id = :v").param("v", v1.id())
                 .query(Double.class).single();
@@ -71,7 +73,7 @@ class AgentFlowIT extends IntegrationTestBase {
                 null, null, null, "творог Простоквашино 5%: 121 ккал", "HIGH", null);
         long draft = say(1001, "творог Простоквашино 5%: 121 ккал, Б 16, Ж 5, У 3").cards().get(0).draftId();
         dishes.confirmDraft(draft, userId(1001));
-        assertThat(dishes.search("творог простоквашино")).isNotEmpty();
+        assertThat(matcher.match("творог простоквашино").type()).isNotEqualTo(kz.calories.dish.DishMatcher.Type.UNKNOWN);
     }
 
     @Test

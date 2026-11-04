@@ -13,6 +13,8 @@ create trigger dish_version_no_delete before delete on dish_version
     for each row execute function forbid_delete();
 create trigger meal_entry_no_delete before delete on meal_entry
     for each row execute function forbid_delete();
+create trigger daily_activity_no_delete before delete on daily_activity
+    for each row execute function forbid_delete();
 create trigger chat_message_no_delete before delete on chat_message
     for each row execute function forbid_delete();
 
@@ -35,7 +37,8 @@ do $$
 begin
     if exists (select 1 from pg_roles where rolname = 'calorie_app') then
         grant usage on schema public to calorie_app;
-        grant select, insert, update on app_user, dish_version, meal_entry, chat_message, dish_draft to calorie_app;
+        grant select, insert, update on app_user, dish_version, meal_entry, chat_message, dish_draft,
+            meal_draft, dish_alias, daily_activity to calorie_app;
         grant usage, select on all sequences in schema public to calorie_app;
     end if;
 end

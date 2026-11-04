@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import kz.calories.dish.DishVersion;
 import kz.calories.user.AppUser;
 import kz.calories.validation.Nutrition;
@@ -34,6 +35,18 @@ public class MealService {
         String note = "приблизительная оценка" + (assumptions == null || assumptions.isBlank() ? "" : "; " + assumptions);
         long id = repo.insert(user.id(), eatenAt, name, null, grams, n, confidence, note);
         return repo.find(user.id(), id).orElseThrow();
+    }
+
+    /** Запись одной позиции пачки: значения на 100 г масштабируются кодом. */
+    public MealEntry logLine(AppUser user, String name, Long dishVersionId, double grams, Nutrition per100,
+                             OffsetDateTime eatenAt, String confidence, String assumptions, UUID batchId) {
+        Nutrition n = per100.forGrams(grams).rounded();
+        long id = repo.insert(user.id(), eatenAt, name, dishVersionId, grams, n, confidence, assumptions, batchId);
+        return repo.find(user.id(), id).orElseThrow();
+    }
+
+    public int deactivateBatch(AppUser user, UUID batchId) {
+        return repo.deactivateBatch(user.id(), batchId);
     }
 
     public Optional<MealEntry> find(AppUser user, long id) {

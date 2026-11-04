@@ -1,8 +1,14 @@
 # Calorie bot
 
-Telegram-бот для подсчёта КБЖУ + клетчатки для двух человек. Любое сообщение уходит в LLM-агента (Gemini через LangChain4j), который сам вызывает инструменты: сохранить блюдо/продукт, записать приём пищи, поправить/деактивировать запись, показать итоги. Числа считает и суммирует код, блок «Итого за сегодня» дописывает тоже он. Физически данные не удаляются.
+Telegram-бот для подсчёта КБЖУ + клетчатки для двух человек. Сообщение сначала разбирает код, и только если он не справился, оно уходит в LLM (Gemini через LangChain4j): 
+1. команды и ключевые слова — вес, шаги, профиль, цель, итоги, баланс;
+2. список «блюдо + вес» («Хлеб 13, картошка 300, мандарин 60») — поиск в справочнике (точное имя → алиас → pg_trgm), точные совпадения записываются сразу, примерные — после подтверждения кнопкой;
+3. незнакомые блюда из списка уходят в LLM ОДНИМ запросом, ответ (КБЖУ на 100 г) подтверждается и сохраняется в справочник;
+4. всё остальное (рецепты, КБЖУ в тексте, правки, вопросы) — LLM-агент с инструментами.
 
-Стек: Java 21, Spring Boot 3.4, Gradle, PostgreSQL 16 + pgvector + pg_trgm, Liquibase (SQL), telegrambots (long polling), LangChain4j + Gemini.
+Числа считает и суммирует код, блоки «Итого за сегодня» и «Расход / Баланс» дописывает тоже он. Физически данные не удаляются.
+
+Стек: Java 21, Spring Boot 3.4, Gradle, PostgreSQL 16 + pg_trgm, Liquibase (SQL), telegrambots (long polling), LangChain4j + Gemini.
 
 Подробности решений — в [docs/decisions.md](docs/decisions.md), исходное ТЗ — `calorie-bot-claude-code-prompt.md`.
 
@@ -12,24 +18,23 @@ Telegram-бот для подсчёта КБЖУ + клетчатки для д�
 src/main/java/kz/calories
   agent/       AgentService (цикл, rate limit, retry), AgentTools (инструменты LLM), системный промпт
   bot/         CalorieBot (Telegram API), MessageRouter (команды, кнопки, whitelist)
-  llm/         AgentLlm / EmbeddingClient (свой интерфейс) + реализации на Gemini
-  dish/        версии блюд, черновики, поиск (exact + trgm + pgvector)
-  meal/        дневник, итоги дня, форматирование
+  parse/       MealTextParser (список «блюдо + вес»), IntentParser (ключевые слова) — чистые функции
+  llm/         AgentLlm (диалог с инструментами + пакетная оценка блюд), реализация на Gemini
+  dish/        версии блюд, черновики, DishMatcher (точное имя → алиас → trgm)
+  meal/        дневник, итоги дня, MealBatchService (запись пачки, подтверждение, отмена)
+  energy/      вес, шаги, расход калорий (Миффлин–Сан-Жеор + шаги), баланс
   validation/  Nutrition, проверки (Атуотер, веса, диапазоны)
-  user/        whitelist и цели
-src/main/resources/db/changelog   Liquibase (formatted SQL)
+  user/        whitelist, цели, профиль (рост, возраст, пол)
+src/main/resources/db/changelog   Liquibase (formatted SQL; 004 — справочник базовых продуктов)
+src/main/resources/db/seed        products.csv, aliases.csv — базовые продукты на 100 г и алиасы
 ```
 
-## 1. Локальная установка PostgreSQL 16 + pgvector
+## 1. Локальная установка PostgreSQL 16
 
-Ubuntu:
+Ubuntu: `sudo apt install -y postgresql-16` (pg_trgm входит в postgresql-contrib).
 
-```bash
-sudo apt install -y postgresql-16 postgresql-16-pgvector
-```
-
-Windows: установите PostgreSQL 16 и pgvector (https://github.com/pgvector/pgvector#windows) либо запустите БД в Docker только для разработки:
-`docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg16`.
+Windows: установите PostgreSQL 16 либо запустите БД в Docker только для разработки:
+`docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:16`.
 
 Инициализация (суперпользователем): роли `calorie_owner` (миграции) и `calorie_app` (приложение, без `DELETE`):
 
@@ -43,13 +48,19 @@ psql -U postgres -v owner_password="'owner_pw'" -v app_password="'app_pw'" -f sc
 2. `cp .env.example .env`, заполните. Для IDEA: Run Configuration → Environment variables → From file `.env` (или плагин EnvFile).
 3. Запуск: `./gradlew bootRun` (или `CaloriesApplication` из IDEA).
 
-Миграции Liquibase применяются при старте под `DB_MIGRATION_USER`; приложение работает под `DB_USER`. Если размерность эмбеддингов в конфиге не совпадает с БД, приложение не стартует.
+Миграции Liquibase применяются при старте под `DB_MIGRATION_USER`; приложение работает под `DB_USER`. Справочник базовых продуктов (`db/seed/*.csv`) загружается миграцией 004; правьте CSV до первого запуска (после применения изменения идут новой миграцией).
 
-Тесты: `./gradlew test`. Юнит-тесты работают везде; интеграционные (`*IT`, Testcontainers с `pgvector/pgvector:pg16`) требуют Docker и без него пропускаются. LLM в тестах — мок.
+Тесты: `./gradlew test`. Юнит-тесты работают везде; интеграционные (`*IT`, Testcontainers с `postgres:16`) требуют Docker и без него пропускаются. LLM в тестах — мок.
 
 ## 3. Использование
 
-Пишите обычным текстом: «съел 300 г борща и 150 г творога», «вот рецепт борща: … готового вышло 3 кг», «творог Простоквашино 5%: 121 ккал, Б 16, Ж 5, У 3», «не 400, а 300 г», «удали последнюю запись», «цель 2000 ккал». Карточка нового блюда подтверждается кнопкой. Команды: `/start`, `/help`, `/today`, `/dishes [поиск]`.
+Пишите обычным текстом:
+
+- **Еда списком:** «Хлеб 13, картошка с курицей 300, мандарин 60», «70 йогурт, 7 карамель», «Хлеб 26 масло 8 сыр масдам 25», «хлебец на 30ккал». Точные совпадения записываются сразу (кнопка «↩ Отменить»), примерные («олодьи» → «оладьи») и незнакомые блюда — карточкой с кнопками «Записать / Отмена».
+- **Расход калорий:** один раз «рост 178, возраст 35, пол м»; затем «вес 82,5», «шагов 9500» (можно «вчера шагов 8000»; значения за день обновляются). «баланс» или `/balance` — съедено минус потрачено; расход показывается и в `/today`.
+- **Через LLM:** «вот рецепт борща: … готового вышло 3 кг», «творог Простоквашино 5%: 121 ккал, Б 16, Ж 5, У 3», «не 400, а 300 г», «удали последнюю запись», «цель 2000 ккал, белка 120 г».
+
+Команды: `/start`, `/help`, `/today`, `/balance`, `/weight`, `/steps`, `/profile`, `/dishes [поиск]`. Формулы расхода и коэффициенты (`app.energy.*`) описаны в [docs/decisions.md](docs/decisions.md).
 
 ## 4. Деплой на Ubuntu без Docker (этап 1)
 

@@ -17,6 +17,11 @@ import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.starter.SpringLongPollingBot;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
+import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -49,6 +54,7 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
         }
         this.client = new OkHttpTelegramClient(token);
         this.router = router;
+        executor.submit(this::registerCommands);
     }
 
     @Override
@@ -97,16 +103,54 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
             return; // чужой или неактивный — игнорируем молча
         }
         AgentReply r = reply.get();
-        for (String chunk : split(r.text())) {
-            client.execute(SendMessage.builder().chatId(m.getChatId()).text(chunk).build());
+        String lower = m.getText().trim().toLowerCase();
+        boolean showMenu = lower.startsWith("/start") || lower.startsWith("/help");
+        List<String> chunks = split(r.text());
+        for (int i = 0; i < chunks.size(); i++) {
+            SendMessage.SendMessageBuilder<?, ?> msg = SendMessage.builder().chatId(m.getChatId()).text(chunks.get(i));
+            boolean last = i == chunks.size() - 1;
+            if (last && r.undoBatchId() != null) {
+                msg.replyMarkup(InlineKeyboardMarkup.builder().keyboardRow(new InlineKeyboardRow(
+                        InlineKeyboardButton.builder().text("↩ Отменить").callbackData("undo:" + r.undoBatchId()).build())).build());
+            } else if (last && showMenu) {
+                msg.replyMarkup(menu());
+            }
+            client.execute(msg.build());
         }
         for (AgentContext.DraftCard card : r.cards()) {
             InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
                     .keyboardRow(new InlineKeyboardRow(
-                            InlineKeyboardButton.builder().text("✅ Сохранить").callbackData("save:" + card.draftId()).build(),
-                            InlineKeyboardButton.builder().text("❌ Отмена").callbackData("cancel:" + card.draftId()).build()))
+                            InlineKeyboardButton.builder().text(card.confirmPrefix().equals("save") ? "✅ Сохранить" : "✅ Записать")
+                                    .callbackData(card.confirmPrefix() + ":" + card.draftId()).build(),
+                            InlineKeyboardButton.builder().text("❌ Отмена").callbackData(card.cancelPrefix() + ":" + card.draftId()).build()))
                     .build();
             client.execute(SendMessage.builder().chatId(m.getChatId()).text(card.text()).replyMarkup(kb).build());
+        }
+    }
+
+    /** Постоянная клавиатура: тексты кнопок разбираются теми же ключевыми словами, что и обычный текст. */
+    private static ReplyKeyboardMarkup menu() {
+        return ReplyKeyboardMarkup.builder()
+                .keyboardRow(new KeyboardRow(
+                        KeyboardButton.builder().text("Итог дня").build(),
+                        KeyboardButton.builder().text("Баланс").build(),
+                        KeyboardButton.builder().text("Справка").build()))
+                .resizeKeyboard(true).build();
+    }
+
+    private void registerCommands() {
+        try {
+            client.execute(SetMyCommands.builder()
+                    .command(new BotCommand("today", "Итоги дня"))
+                    .command(new BotCommand("balance", "Расход и баланс"))
+                    .command(new BotCommand("weight", "Записать вес"))
+                    .command(new BotCommand("steps", "Записать шаги"))
+                    .command(new BotCommand("profile", "Рост, возраст, пол"))
+                    .command(new BotCommand("dishes", "Сохранённые блюда"))
+                    .command(new BotCommand("help", "Справка"))
+                    .build());
+        } catch (Exception e) {
+            log.warn("Не удалось зарегистрировать меню команд: {}", e.toString());
         }
     }
 

@@ -10,7 +10,7 @@ class NutritionValidatorTest {
 
     private final NutritionValidator validator = new NutritionValidator(new AppProperties(
             null, List.of(), null, null,
-            new AppProperties.Validation(900, 100, 105, 0.15, 8, 5000, 50000, 0.2, 3.0), null, null));
+            new AppProperties.Validation(900, 100, 105, 0.15, 8, 5000, 50000, 0.2, 3.0), null, null, null));
 
     @Test
     void consistentValuesPass() {

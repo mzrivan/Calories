@@ -12,7 +12,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class UserService {
 
-    private static final String COLS = "id, telegram_id, name, timezone, goal_kcal, goal_protein, goal_fat, goal_carbs, goal_fiber";
+    private static final String COLS = "id, telegram_id, name, timezone, goal_kcal, goal_protein, goal_fat, goal_carbs, goal_fiber, "
+            + "height_cm, birth_year, sex";
 
     private final JdbcClient jdbc;
     private final AppProperties props;
@@ -51,11 +52,24 @@ public class UserService {
                 .param("c", g.carbs()).param("fi", g.fiber()).param("id", userId).update();
     }
 
+    /** Частичное обновление профиля: непереданные поля остаются. */
+    public void setProfile(long userId, Double heightCm, Integer birthYear, String sex) {
+        jdbc.sql("update app_user set height_cm = coalesce(:h, height_cm), birth_year = coalesce(:b, birth_year), "
+                        + "sex = coalesce(:s, sex) where id = :id and active")
+                .param("h", heightCm).param("b", birthYear).param("s", sex).param("id", userId).update();
+    }
+
     private AppUser map(ResultSet rs, int row) throws SQLException {
         AppUser.Goals goals = new AppUser.Goals(d(rs, "goal_kcal"), d(rs, "goal_protein"), d(rs, "goal_fat"),
                 d(rs, "goal_carbs"), d(rs, "goal_fiber"));
+        AppUser.Profile profile = new AppUser.Profile(d(rs, "height_cm"), i(rs, "birth_year"), rs.getString("sex"));
         return new AppUser(rs.getLong("id"), rs.getLong("telegram_id"), rs.getString("name"),
-                ZoneId.of(rs.getString("timezone")), goals);
+                ZoneId.of(rs.getString("timezone")), goals, profile);
+    }
+
+    static Integer i(ResultSet rs, String col) throws SQLException {
+        int v = rs.getInt(col);
+        return rs.wasNull() ? null : v;
     }
 
     static Double d(ResultSet rs, String col) throws SQLException {

@@ -11,8 +11,6 @@ spring:
     # миграции идут под ролью-владельцем, приложение работает под ограниченной ролью без DELETE
     user: ${DB_MIGRATION_USER:${DB_USER:calorie_app}}
     password: ${DB_MIGRATION_PASSWORD:${DB_PASSWORD:}}
-    parameters:
-      embeddingDimensions: ${EMBEDDING_DIMENSIONS:768}
 
 management:
   endpoints:
@@ -36,8 +34,6 @@ app:
   llm:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-2.5-flash}
-    embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-001}
-    embedding-dimensions: ${EMBEDDING_DIMENSIONS:768}
     temperature: 0.2
     max-tool-calls: 6
     retries: ${LLM_RETRIES:5}
@@ -59,7 +55,13 @@ app:
     max-cooked-ratio: 3.0
   search:
     trgm-threshold: 0.3
-    vector-threshold: 0.7
+    approx-threshold: 0.5
+    approx-gap: 0.1
     top-k: 5
   drafts:
     ttl-hours: 24
+  energy:
+    # всего = BMR × tef-factor + шаги; длина шага = рост × step-length-factor; ккал шагов = walk-kcal-per-kg-km × кг × км
+    tef-factor: 1.1
+    step-length-factor: 0.415
+    walk-kcal-per-kg-km: 0.5

@@ -1,0 +1,33 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-seed-products
+      author: calories
+      changes:
+        - loadData:
+            file: db/seed/products.csv
+            tableName: dish_version
+            separator: ","
+            encoding: UTF-8
+            columns:
+              - column: { name: name, type: STRING }
+              - column: { name: normalized_name, type: STRING }
+              - column: { name: kind, type: STRING }
+              - column: { name: kcal, type: NUMERIC }
+              - column: { name: protein_g, type: NUMERIC }
+              - column: { name: fat_g, type: NUMERIC }
+              - column: { name: carbs_g, type: NUMERIC }
+              - column: { name: fiber_g, type: NUMERIC }
+              - column: { name: confidence, type: STRING }
+              - column: { name: assumptions, type: STRING }
+  - changeSet:
+      id: 004-seed-aliases
+      author: calories
+      changes:
+        - loadData:
+            file: db/seed/aliases.csv
+            tableName: dish_alias
+            separator: ","
+            encoding: UTF-8
+            columns:
+              - column: { name: alias_normalized, type: STRING }
+              - column: { name: dish_normalized_name, type: STRING }

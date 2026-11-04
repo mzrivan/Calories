@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import kz.calories.validation.Nutrition;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -23,13 +24,18 @@ public class MealRepository {
 
     public long insert(long userId, OffsetDateTime eatenAt, String name, Long dishVersionId, double grams,
                        Nutrition n, String confidence, String assumptions) {
+        return insert(userId, eatenAt, name, dishVersionId, grams, n, confidence, assumptions, null);
+    }
+
+    public long insert(long userId, OffsetDateTime eatenAt, String name, Long dishVersionId, double grams,
+                       Nutrition n, String confidence, String assumptions, UUID batchId) {
         return jdbc.sql("""
                 insert into meal_entry (user_id, eaten_at, name, dish_version_id, grams, kcal, protein_g, fat_g, carbs_g,
-                    fiber_g, confidence, assumptions)
-                values (:u, :at, :name, :dv, :g, :kcal, :p, :f, :c, :fi, :conf, :assum) returning id""")
+                    fiber_g, confidence, assumptions, batch_id)
+                values (:u, :at, :name, :dv, :g, :kcal, :p, :f, :c, :fi, :conf, :assum, :batch) returning id""")
                 .param("u", userId).param("at", eatenAt).param("name", name).param("dv", dishVersionId)
                 .param("g", grams).param("kcal", n.kcal()).param("p", n.protein()).param("f", n.fat())
-                .param("c", n.carbs()).param("fi", n.fiber()).param("conf", confidence).param("assum", assumptions)
+                .param("c", n.carbs()).param("fi", n.fiber()).param("conf", confidence).param("assum", assumptions).param("batch", batchId)
                 .query(Long.class).single();
     }
 
@@ -52,6 +58,13 @@ public class MealRepository {
     public boolean deactivate(long userId, long id) {
         return jdbc.sql("update meal_entry set active = false, deactivated_at = now() where id = :id and user_id = :u and active")
                 .param("id", id).param("u", userId).update() > 0;
+    }
+
+    /** Деактивирует все активные записи пачки пользователя; возвращает их число. */
+    public int deactivateBatch(long userId, UUID batchId) {
+        return jdbc.sql("update meal_entry set active = false, deactivated_at = now() "
+                        + "where batch_id = :b and user_id = :u and active")
+                .param("b", batchId).param("u", userId).update();
     }
 
     public Optional<MealEntry> lastActive(long userId) {

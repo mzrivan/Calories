@@ -5,3 +5,5 @@ databaseChangeLog:
       file: db/changelog/sql/002-schema.sql
   - include:
       file: db/changelog/sql/003-protection.sql
+  - include:
+      file: db/changelog/004-seed.yaml

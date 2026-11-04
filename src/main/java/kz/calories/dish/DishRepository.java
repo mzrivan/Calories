@@ -28,16 +28,16 @@ public class DishRepository {
         this.jdbc = jdbc;
     }
 
-    public long insert(DraftPayload p, long userId, String embeddingLiteral) {
+    public long insert(DraftPayload p, long userId) {
         Nutrition n = p.per100();
         return jdbc.sql("""
-                insert into dish_version (name, normalized_name, embedding, kind, kcal, protein_g, fat_g, carbs_g, fiber_g,
+                insert into dish_version (name, normalized_name, kind, kcal, protein_g, fat_g, carbs_g, fiber_g,
                     cooked_weight_g, source_text, method, confidence, assumptions, created_by_user_id)
-                values (:name, :norm, cast(:emb as vector), :kind, :kcal, :p, :f, :c, :fi,
+                values (:name, :norm, :kind, :kcal, :p, :f, :c, :fi,
                     :cw, :src, :method, :conf, :assum, :uid)
                 returning id""")
                 .param("name", p.name()).param("norm", Names.normalize(p.name()))
-                .param("emb", embeddingLiteral).param("kind", p.kind().name())
+                .param("kind", p.kind().name())
                 .param("kcal", n.kcal()).param("p", n.protein()).param("f", n.fat()).param("c", n.carbs())
                 .param("fi", n.fiber()).param("cw", p.cookedWeightG()).param("src", p.sourceText())
                 .param("method", p.method()).param("conf", p.confidence()).param("assum", p.assumptions())
@@ -86,16 +86,15 @@ public class DishRepository {
                 .query((rs, i) -> new Scored(map(rs, i), rs.getDouble("score"), "trgm")).list();
     }
 
-    public List<Scored> searchVector(String embeddingLiteral, double threshold, int limit) {
-        return jdbc.sql("""
-                select * from (
-                    select l.*, 1 - (v.embedding <=> cast(:e as vector)) as score
-                    from (""" + LATEST + """
-                    ) l join dish_version v on v.id = l.id
-                    where v.embedding is not null) s
-                where score >= :t order by score desc limit :lim""")
-                .param("e", embeddingLiteral).param("t", threshold).param("lim", limit)
-                .query((rs, i) -> new Scored(map(rs, i), rs.getDouble("score"), "vector")).list();
+    public Optional<String> aliasTarget(String aliasNormalized) {
+        return jdbc.sql("select dish_normalized_name from dish_alias where alias_normalized = :a")
+                .param("a", aliasNormalized).query(String.class).optional();
+    }
+
+    public void saveAlias(String aliasNormalized, String dishNormalizedName) {
+        jdbc.sql("insert into dish_alias (alias_normalized, dish_normalized_name) values (:a, :d) "
+                        + "on conflict (alias_normalized) do nothing")
+                .param("a", aliasNormalized).param("d", dishNormalizedName).update();
     }
 
     public boolean deactivate(long id) {
@@ -106,10 +105,12 @@ public class DishRepository {
     private DishVersion map(ResultSet rs, int row) throws SQLException {
         Nutrition n = new Nutrition(rs.getDouble("kcal"), rs.getDouble("protein_g"), rs.getDouble("fat_g"),
                 rs.getDouble("carbs_g"), nd(rs, "fiber_g"));
+        long createdBy = rs.getLong("created_by_user_id");
+        Long createdByUserId = rs.wasNull() ? null : createdBy;
         return new DishVersion(rs.getLong("id"), rs.getString("name"), rs.getString("normalized_name"),
                 DishVersion.Kind.valueOf(rs.getString("kind")), n, nd(rs, "cooked_weight_g"),
                 rs.getString("source_text"), rs.getString("method"), rs.getString("confidence"),
-                rs.getString("assumptions"), rs.getLong("created_by_user_id"),
+                rs.getString("assumptions"), createdByUserId,
                 rs.getObject("created_at", OffsetDateTime.class), rs.getBoolean("active"));
     }
 

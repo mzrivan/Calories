@@ -15,6 +15,9 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import kz.calories.config.AppProperties;
 import kz.calories.dish.DishFormat;
+import kz.calories.dish.DishMatcher;
+import kz.calories.dish.DishRepository;
+import kz.calories.energy.ActivityService;
 import kz.calories.dish.DishService;
 import kz.calories.dish.DishVersion;
 import kz.calories.dish.DraftPayload;
@@ -42,13 +45,17 @@ public class AgentTools {
     private final AppUser user;
     private final AgentContext ctx;
     private final DishService dishes;
+    private final DishMatcher matcher;
+    private final ActivityService activity;
     private final MealService meals;
     private final UserService users;
     private final NutritionValidator validator;
     private final AppProperties props;
 
-    public AgentTools(AppUser user, AgentContext ctx, DishService dishes, MealService meals, UserService users,
-                      NutritionValidator validator, AppProperties props) {
+    public AgentTools(AppUser user, AgentContext ctx, DishService dishes, DishMatcher matcher, ActivityService activity,
+                      MealService meals, UserService users, NutritionValidator validator, AppProperties props) {
+        this.matcher = matcher;
+        this.activity = activity;
         this.user = user;
         this.ctx = ctx;
         this.dishes = dishes;
@@ -60,17 +67,17 @@ public class AgentTools {
 
     // ------------------------------------------------------------------ поиск
 
-    @Tool(name = "find_dish", value = "Ищет сохранённые блюда и продукты по названию (точное совпадение, похожее название, смысловой поиск). "
+    @Tool(name = "find_dish", value = "Ищет сохранённые блюда и продукты по названию (точное совпадение, алиас, похожее написание). "
             + "Возвращает кандидатов с id версии, видом, датой версии и оценкой схожести. Решение, какой подходит, принимаешь ты; "
             + "при сомнении спроси пользователя.")
     public String findDish(@P("название блюда или продукта") String query) {
         return run(() -> {
-            List<DishService.Candidate> found = dishes.search(query);
+            List<DishRepository.Scored> found = matcher.candidates(query);
             if (found.isEmpty()) {
                 return "Ничего похожего в памяти нет. Предложи пользователю добавить блюдо или запиши приблизительную оценку через log_estimate.";
             }
             StringBuilder sb = new StringBuilder("Кандидаты (самая свежая активная версия каждого блюда):\n");
-            for (DishService.Candidate c : found) {
+            for (DishRepository.Scored c : found) {
                 sb.append(String.format(Locale.ROOT, "- %s [схожесть %.2f, %s]%n", DishFormat.line(c.version()), c.score(), c.matchType()));
             }
             return sb.toString();
@@ -152,7 +159,7 @@ public class AgentTools {
             DraftPayload payload = new DraftPayload(name.trim(), k, per100, cooked, totalKcal, sourceText, method, conf, assum);
             long draftId = dishes.createDraft(user.id(), payload);
             ctx.markWrote();
-            ctx.cards().add(new AgentContext.DraftCard(draftId, DishFormat.card(payload)));
+            ctx.cards().add(AgentContext.DraftCard.dish(draftId, DishFormat.card(payload)));
             return "Черновик #" + draftId + " создан; пользователю будет показана карточка с кнопками «Сохранить»/«Отмена». "
                     + "Цифры не повторяй, коротко попроси подтвердить кнопкой или прислать правку текстом."
                     + (gate.low() ? " Валидация не прошла полностью: уверенность помечена как низкая, предложи поправить вручную." : "");
@@ -329,6 +336,47 @@ public class AgentTools {
             users.setGoals(user.id(), new AppUser.Goals(kcal, proteinG, fatG, carbsG, fiberG));
             ctx.showTotals();
             return "Цели обновлены.";
+        });
+    }
+
+    // ------------------------------------------------------------------ вес, шаги, профиль
+
+    @Tool(name = "record_activity", value = "Записывает вес (кг) и/или шаги за день и пересчитывает расход калорий (формулы в коде). "
+            + "Можно обновлять в течение дня. Дата YYYY-MM-DD, пусто = сегодня.")
+    public String recordActivity(@P(value = "вес, кг", required = false) Double weightKg,
+                                 @P(value = "шаги за день", required = false) Integer steps,
+                                 @P(value = "дата YYYY-MM-DD", required = false) String date) {
+        return run(() -> {
+            if (weightKg == null && steps == null) {
+                return "Ошибка: нужен вес или шаги.";
+            }
+            LocalDate day = date == null || date.isBlank() ? meals.today(user) : parseDate(date);
+            activity.record(user, day, weightKg, steps);
+            ctx.markWrote();
+            ctx.showBalance(day);
+            return "Сохранено. Блок «Расход и баланс» бот добавит к ответу сам, цифры не пересказывай.";
+        });
+    }
+
+    @Tool(name = "set_profile", value = "Задаёт рост (см), возраст (полных лет) и пол (M/F) для расчёта расхода калорий. Непереданные поля не меняются.")
+    public String setProfile(@P(value = "рост, см", required = false) Double heightCm,
+                             @P(value = "возраст, лет", required = false) Integer age,
+                             @P(value = "M или F", required = false) String sex) {
+        return run(() -> {
+            String s = sex == null ? null : sex.trim().toUpperCase(Locale.ROOT);
+            if (s != null && !s.equals("M") && !s.equals("F")) {
+                return "Ошибка: sex должен быть M или F.";
+            }
+            if (heightCm != null && (heightCm < 50 || heightCm > 260)) {
+                return "Ошибка: рост должен быть 50–260 см.";
+            }
+            if (age != null && (age < 5 || age > 120)) {
+                return "Ошибка: возраст должен быть 5–120 лет.";
+            }
+            Integer birthYear = age == null ? null : meals.today(user).getYear() - age;
+            users.setProfile(user.id(), heightCm, birthYear, s);
+            ctx.markWrote();
+            return "Профиль обновлён.";
         });
     }
 

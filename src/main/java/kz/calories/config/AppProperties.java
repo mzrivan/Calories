@@ -11,11 +11,12 @@ public record AppProperties(
         Agent agent,
         Validation validation,
         Search search,
-        Drafts drafts) {
+        Drafts drafts,
+        Energy energy) {
 
     public record Telegram(boolean enabled, String token) {}
 
-    public record Llm(String apiKey, String model, String embeddingModel, int embeddingDimensions,
+    public record Llm(String apiKey, String model,
                       double temperature, int maxToolCalls, int retries, long retryInitialDelayMs) {}
 
     public record Agent(int historyMessages, int historyMinutes, int rateLimitPerMinute, int maxValidationRetries) {}
@@ -24,7 +25,9 @@ public record AppProperties(
                              double atwaterTolerance, double atwaterMinAbsKcal, double maxGrams,
                              double maxCookedWeightG, double minCookedRatio, double maxCookedRatio) {}
 
-    public record Search(double trgmThreshold, double vectorThreshold, int topK) {}
+    public record Search(double trgmThreshold, double approxThreshold, double approxGap, int topK) {}
+
+    public record Energy(double tefFactor, double stepLengthFactor, double walkKcalPerKgKm) {}
 
     public record Drafts(int ttlHours) {}
 

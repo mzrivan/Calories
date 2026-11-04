@@ -7,7 +7,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import kz.calories.config.AppProperties;
+import kz.calories.dish.DishMatcher;
 import kz.calories.dish.DishService;
+import kz.calories.energy.ActivityService;
+import kz.calories.energy.BalanceFormatter;
 import kz.calories.llm.AgentLlm;
 import kz.calories.meal.MealService;
 import kz.calories.user.AppUser;
@@ -26,14 +29,18 @@ public class AgentService {
     private final AgentLlm llm;
     private final ChatRepository chat;
     private final DishService dishes;
+    private final DishMatcher matcher;
+    private final ActivityService activity;
     private final MealService meals;
     private final UserService users;
     private final NutritionValidator validator;
     private final AppProperties props;
     private final Map<Long, Deque<Long>> recentRequests = new ConcurrentHashMap<>();
 
-    public AgentService(AgentLlm llm, ChatRepository chat, DishService dishes, MealService meals, UserService users,
-                        NutritionValidator validator, AppProperties props) {
+    public AgentService(AgentLlm llm, ChatRepository chat, DishService dishes, DishMatcher matcher, ActivityService activity,
+                        MealService meals, UserService users, NutritionValidator validator, AppProperties props) {
+        this.matcher = matcher;
+        this.activity = activity;
         this.llm = llm;
         this.chat = chat;
         this.dishes = dishes;
@@ -51,7 +58,7 @@ public class AgentService {
         chat.save(user.id(), true, text); // сообщение не теряется, даже если LLM недоступна
 
         AgentContext ctx = new AgentContext();
-        AgentTools tools = new AgentTools(user, ctx, dishes, meals, users, validator, props);
+        AgentTools tools = new AgentTools(user, ctx, dishes, matcher, activity, meals, users, validator, props);
         String answer = null;
         boolean failed = false;
         int attempts = Math.max(1, props.llm().retries());
@@ -83,6 +90,10 @@ public class AgentService {
         if (ctx.dayChanged()) {
             AppUser fresh = users.findById(user.id()).orElse(user); // цели могли измениться в этом ходе
             reply.append("\n\n").append(meals.todayBlock(fresh));
+        }
+        if (ctx.balanceDay() != null) {
+            AppUser fresh2 = users.findById(user.id()).orElse(user); // профиль мог измениться в этом ходе
+            reply.append("\n\n").append(BalanceFormatter.block(activity.balance(fresh2, ctx.balanceDay())));
         }
         String out = reply.toString();
         chat.save(user.id(), false, out);

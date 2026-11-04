@@ -1,9 +1,7 @@
 package kz.calories;
 
-import java.util.Random;
 import java.util.function.Function;
 import kz.calories.llm.AgentLlm;
-import kz.calories.llm.EmbeddingClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -17,7 +15,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-/** Требует Docker (Testcontainers, Postgres 16 + pgvector). Без Docker тесты пропускаются. LLM — скриптовый мок. */
+/** Требует Docker (Testcontainers, Postgres 16). Без Docker тесты пропускаются. LLM — скриптовый мок. */
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(properties = {
         "app.telegram.enabled=false",
@@ -28,7 +26,7 @@ public abstract class IntegrationTestBase {
 
     @Container
     static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>(
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"))
+            DockerImageName.parse("postgres:16").asCompatibleSubstituteFor("postgres"))
             .withInitScript("test-init.sql");
 
     @DynamicPropertySource
@@ -52,27 +50,27 @@ public abstract class IntegrationTestBase {
             return new ScriptedLlm();
         }
 
-        @Bean
-        @Primary
-        public EmbeddingClient fakeEmbeddings() {
-            return text -> {
-                Random rnd = new Random(text.hashCode());
-                float[] v = new float[768];
-                for (int i = 0; i < v.length; i++) {
-                    v[i] = rnd.nextFloat() - 0.5f;
-                }
-                return v;
-            };
-        }
     }
 
     /** Мок-LLM: сценарий вызывает инструменты так, как это сделала бы модель. */
     public static class ScriptedLlm implements AgentLlm {
         public volatile Function<Object, String> script = tools -> "ok";
+        /** Сценарий оценки незнакомых блюд; по умолчанию — типовая оценка. */
+        public volatile Function<java.util.List<EstimateRequest>, java.util.List<DishEstimate>> estimator = reqs -> reqs.stream()
+                .map(r -> new DishEstimate(r.name(), 100, 5, 4, 12, null, "MEDIUM", "тестовая оценка")).toList();
+        public final java.util.concurrent.atomic.AtomicInteger chatCalls = new java.util.concurrent.atomic.AtomicInteger();
+        public final java.util.concurrent.atomic.AtomicInteger estimateCalls = new java.util.concurrent.atomic.AtomicInteger();
 
         @Override
         public LlmResult chat(String systemPrompt, java.util.List<ChatTurn> history, String userMessage, Object tools, int maxToolCalls) {
+            chatCalls.incrementAndGet();
             return new LlmResult(script.apply(tools), 0, 0, 0);
+        }
+
+        @Override
+        public java.util.List<DishEstimate> estimate(java.util.List<EstimateRequest> requests, String originalMessage) {
+            estimateCalls.incrementAndGet();
+            return estimator.apply(requests);
         }
     }
 }
