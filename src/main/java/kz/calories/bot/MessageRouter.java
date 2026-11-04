@@ -21,11 +21,17 @@ import kz.calories.parse.IntentParser;
 import kz.calories.parse.MealTextParser;
 import kz.calories.user.AppUser;
 import kz.calories.user.UserService;
+import kz.calories.validation.Nutrition;
+import kz.calories.validation.NutritionValidator;
+import kz.calories.validation.ValidationResult;
+import kz.calories.agent.AgentContext;
+import kz.calories.dish.DraftPayload;
+import kz.calories.parse.ProductLineParser;
 import org.springframework.stereotype.Component;
 
 /**
  * Маршрутизация без зависимости от Telegram API. Порядок, каждый шаг без LLM, пока не сработает:
- * команды → ключевые слова (вес, шаги, профиль, цель, итоги, баланс) → список «блюдо + вес» →
+ * команды → ключевые слова (вес, шаги, профиль, цель, итоги, баланс) → «продукт К/Б/Ж/У[/клетчатка]» → список «блюдо + вес» →
  * и только потом LLM-агент (рецепты, КБЖУ в тексте, правки, вопросы, всё нераспознанное).
  */
 @Component
@@ -38,6 +44,7 @@ public class MessageRouter {
             • «хлеб 30, молоко 100, мандарин 60» — запишу список (или «70 йогурт, 7 карамель»)
             • «вот рецепт борща: … вышло 3 кг» — сохраню блюдо (после вашего подтверждения)
             • «творог Простоквашино 5%: 121 ккал, Б 16, Ж 5, У 3» — сохраню продукт
+            • «Творог Простоквашино 121/16/5/3» — продукт: ккал/белки/жиры/углеводы[/клетчатка] на 100 г
             • «не 400, а 300 г», «удали последнюю запись» — правки
             • «цель 2000 ккал»
 
@@ -56,9 +63,11 @@ public class MessageRouter {
     private final MealBatchService batches;
     private final ActivityService activity;
     private final ChatRepository chat;
+    private final NutritionValidator validator;
 
     public MessageRouter(UserService users, AgentService agent, DishService dishes, MealService meals,
-                         MealBatchService batches, ActivityService activity, ChatRepository chat) {
+                         MealBatchService batches, ActivityService activity, ChatRepository chat,
+                         NutritionValidator validator) {
         this.users = users;
         this.agent = agent;
         this.dishes = dishes;
@@ -66,6 +75,7 @@ public class MessageRouter {
         this.batches = batches;
         this.activity = activity;
         this.chat = chat;
+        this.validator = validator;
     }
 
     /** empty = сообщение игнорируется (чужой или неактивный пользователь). */
@@ -125,6 +135,10 @@ public class MessageRouter {
 
     /** Список «блюдо + вес» → код; не разобралось → LLM-агент. */
     private AgentReply processFood(AppUser user, String text) {
+        Optional<ProductLineParser.Product> product = ProductLineParser.parse(text);
+        if (product.isPresent()) {
+            return saveProductDraft(user, text, product.get());
+        }
         MealTextParser.ParsedMessage pm = MealTextParser.parse(text);
         if (!pm.ok()) {
             return agent.handle(user, text);
@@ -132,6 +146,27 @@ public class MessageRouter {
         chat.save(user.id(), true, text);
         AgentReply reply = batches.process(user, pm.items(), text);
         chat.save(user.id(), false, reply.text());
+        return reply;
+    }
+
+    /** «Название К/Б/Ж/У[/кл]» → черновик продукта (на 100 г) с кнопками подтверждения; в дневник не пишет. */
+    private AgentReply saveProductDraft(AppUser user, String text, ProductLineParser.Product p) {
+        Nutrition per100 = p.per100();
+        ValidationResult vr = validator.validatePer100(per100);
+        chat.save(user.id(), true, text);
+        if (!vr.hard().isEmpty()) {
+            String err = "Не сохранил «" + p.name() + "»: " + vr.message() + ".";
+            chat.save(user.id(), false, err);
+            return AgentReply.text(err);
+        }
+        boolean low = !vr.soft().isEmpty();
+        DraftPayload payload = new DraftPayload(p.name(), DishVersion.Kind.PRODUCT, per100, null, null, text, null,
+                low ? "LOW" : "HIGH", low ? "не прошло проверку: " + vr.message() : "значения на 100 г указал пользователь");
+        long draftId = dishes.createDraft(user.id(), payload);
+        String head = low ? "Значения выглядят подозрительно (" + vr.message() + "). Проверьте и подтвердите или пришлите исправленную строку."
+                : "Проверьте и подтвердите.";
+        AgentReply reply = new AgentReply(head, List.of(AgentContext.DraftCard.dish(draftId, DishFormat.card(payload))));
+        chat.save(user.id(), false, head + "\n" + DishFormat.card(payload));
         return reply;
     }
 
