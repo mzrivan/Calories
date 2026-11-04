@@ -35,6 +35,16 @@ class SummaryFormatterTest {
     }
 
     @Test
+    void decimalsAreKept() {
+        DayTotals t = new DayTotals(new Nutrition(1450.6, 78.3, 52.04, 160.5, 21.2), 3);
+        assertThat(SummaryFormatter.totalsBlock(t, NO_GOALS))
+                .isEqualTo("Итого за сегодня: 1450.6 ккал · Б 78.3 · Ж 52 · У 160.5 · Клетч. 21.2");
+        AppUser.Goals goals = new AppUser.Goals(2000.0, null, null, null, null);
+        assertThat(SummaryFormatter.totalsBlock(t, goals)).endsWith("Осталось: 549.4 ккал");
+        assertThat(SummaryFormatter.num(-0.04)).isEqualTo("0");
+    }
+
+    @Test
     void normalizeNames() {
         assertThat(Names.normalize("  Борщ   Зелёный ")).isEqualTo("борщ зеленый");
     }

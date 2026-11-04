@@ -24,9 +24,9 @@ public final class DishFormat {
                 .append(p.name()).append('\n');
         sb.append("На 100 г: ").append(SummaryFormatter.nutrition(p.per100())).append('\n');
         if (p.kind() == DishVersion.Kind.RECIPE && p.cookedWeightG() != null) {
-            sb.append(String.format(Locale.ROOT, "Вес готового: %.0f г", p.cookedWeightG()));
+            sb.append("Вес готового: ").append(SummaryFormatter.num(p.cookedWeightG())).append(" г");
             if (p.totalKcal() != null) {
-                sb.append(String.format(Locale.ROOT, ", всего %.0f ккал", p.totalKcal()));
+                sb.append(", всего ").append(SummaryFormatter.num(p.totalKcal())).append(" ккал");
             }
             sb.append('\n');
         }

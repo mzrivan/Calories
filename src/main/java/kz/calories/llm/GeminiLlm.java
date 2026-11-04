@@ -90,9 +90,9 @@ public class GeminiLlm implements AgentLlm {
             EstimateRequest r = requests.get(i);
             sb.append(i + 1).append(". ").append(r.name());
             if (r.grams() != null) {
-                sb.append(" — порция ").append(Math.round(r.grams())).append(" г");
+                sb.append(" — порция ").append(kz.calories.meal.SummaryFormatter.num(r.grams())).append(" г");
             } else if (r.kcal() != null) {
-                sb.append(" — съедено ").append(Math.round(r.kcal())).append(" ккал");
+                sb.append(" — съедено ").append(kz.calories.meal.SummaryFormatter.num(r.kcal())).append(" ккал");
             }
             sb.append('\n');
         }

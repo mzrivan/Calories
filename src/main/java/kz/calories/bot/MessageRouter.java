@@ -143,7 +143,7 @@ public class MessageRouter {
             if (in.goalKcal() != null) {
                 users.setGoals(user.id(), new AppUser.Goals(in.goalKcal(), null, null, null, null));
                 current = users.findById(user.id()).orElse(user);
-                sb.append("Цель на день: ").append(Math.round(in.goalKcal())).append(" ккал.\n\n").append(meals.todayBlock(current));
+                sb.append("Цель на день: ").append(SummaryFormatter.num(in.goalKcal())).append(" ккал.\n\n").append(meals.todayBlock(current));
             }
             if (in.hasProfile()) {
                 saveProfile(user, in);
@@ -250,7 +250,7 @@ public class MessageRouter {
             sb.append("Сегодня записей пока нет.\n\n");
         } else {
             for (var e : entries) {
-                sb.append(String.format(Locale.ROOT, "• %s, %s г — %s%n", e.name(), (long) Math.round(e.grams()),
+                sb.append(String.format(Locale.ROOT, "• %s, %s г — %s%n", e.name(), SummaryFormatter.num(e.grams()),
                         SummaryFormatter.nutrition(e.nutrition())));
             }
             sb.append('\n');

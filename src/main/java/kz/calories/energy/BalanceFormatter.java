@@ -11,21 +11,22 @@ public final class BalanceFormatter {
             return "Расход не посчитать — не хватает данных. Напишите — " + String.join("; ", b.missing()) + ".";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.ROOT, "Расход: %d ккал (обмен %d", r(b.spent()), r(b.baseKcal())));
+        sb.append("Расход: ").append(num(b.spent())).append(" ккал (обмен ").append(num(b.baseKcal()));
         if (b.stepsKcal() != null) {
-            sb.append(String.format(Locale.ROOT, " + шаги %d, %d шагов", r(b.stepsKcal()), b.steps()));
+            sb.append(" + шаги ").append(num(b.stepsKcal())).append(", ").append(b.steps()).append(" шагов");
         }
         sb.append(")\n");
-        long diff = r(b.diff());
-        sb.append(String.format(Locale.ROOT, "Съедено %d ккал · Баланс: %s%d ккал (%s)", r(b.eatenKcal()),
-                diff > 0 ? "+" : "", diff, diff < 0 ? "дефицит" : diff > 0 ? "профицит" : "ровно"));
+        double diff = Math.round(b.diff() * 10.0) / 10.0;
+        sb.append("Съедено ").append(num(b.eatenKcal())).append(" ккал · Баланс: ")
+                .append(diff > 0 ? "+" : "").append(num(diff)).append(" ккал (")
+                .append(diff < 0 ? "дефицит" : diff > 0 ? "профицит" : "ровно").append(")");
         if (b.stepsKcal() == null) {
             sb.append("\nШагов за этот день нет — расход неполный. Напишите, например: «шагов 9500».");
         }
         return sb.toString();
     }
 
-    private static long r(double v) {
-        return Math.round(v);
+    private static String num(double v) {
+        return kz.calories.meal.SummaryFormatter.num(v);
     }
 }

@@ -8,19 +8,23 @@ public final class SummaryFormatter {
     private SummaryFormatter() {}
 
     public static String nutrition(Nutrition n) {
-        String s = String.format("%d ккал · Б %d · Ж %d · У %d", r(n.kcal()), r(n.protein()), r(n.fat()), r(n.carbs()));
+        String s = macros(n);
         if (n.fiber() != null) {
-            s += " · Клетч. " + oneDecimal(n.fiber());
+            s += " · Клетч. " + num(n.fiber());
         }
         return s;
+    }
+
+    private static String macros(Nutrition n) {
+        return num(n.kcal()) + " ккал · Б " + num(n.protein()) + " · Ж " + num(n.fat()) + " · У " + num(n.carbs());
     }
 
     public static String totalsBlock(DayTotals totals, AppUser.Goals goals) {
         Nutrition n = totals.nutrition();
         StringBuilder sb = new StringBuilder("Итого за сегодня: ")
-                .append(String.format("%d ккал · Б %d · Ж %d · У %d", r(n.kcal()), r(n.protein()), r(n.fat()), r(n.carbs())));
+                .append(macros(n));
         if (n.fiber() != null) {
-            sb.append(" · Клетч. ").append(r(n.fiber()));
+            sb.append(" · Клетч. ").append(num(n.fiber()));
         }
         if (goals != null && goals.any()) {
             StringBuilder left = new StringBuilder();
@@ -42,19 +46,21 @@ public final class SummaryFormatter {
         if (goal == null) {
             return;
         }
-        long remaining = r(goal - eaten);
+        double remaining = Math.round((goal - eaten) * 10.0) / 10.0;
         if (!sb.isEmpty()) {
             sb.append(" · ");
         }
-        sb.append(label).append(remaining < 0 ? "+" + (-remaining) : String.valueOf(remaining)).append(suffix);
+        sb.append(label).append(remaining < 0 ? "+" + num(-remaining) : num(remaining)).append(suffix);
     }
 
-    private static int r(double v) {
-        return (int) Math.round(v);
-    }
-
-    private static String oneDecimal(double v) {
+    /** Число с точностью до 0.1; целые без «.0» (как хранится в БД). */
+    public static String num(double v) {
         double rounded = Math.round(v * 10.0) / 10.0;
-        return rounded == Math.rint(rounded) ? String.valueOf((long) rounded) : String.valueOf(rounded);
+        if (rounded == 0) {
+            return "0";
+        }
+        return rounded == Math.rint(rounded)
+                ? String.valueOf((long) rounded)
+                : String.format(java.util.Locale.ROOT, "%.1f", rounded);
     }
 }
