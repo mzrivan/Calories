@@ -24,6 +24,7 @@ import kz.calories.dish.DraftPayload;
 import kz.calories.meal.DayTotals;
 import kz.calories.meal.MealEntry;
 import kz.calories.meal.MealService;
+import kz.calories.meal.MealType;
 import kz.calories.meal.SummaryFormatter;
 import kz.calories.user.AppUser;
 import kz.calories.user.UserService;
@@ -187,7 +188,8 @@ public class AgentTools {
     public String logMeal(
             @P("id версии блюда из find_dish") Long dishVersionId,
             @P("вес порции, г") Double grams,
-            @P(value = "когда съедено: ISO-8601 в локальном времени пользователя, например 2025-03-01T13:30; пусто = сейчас", required = false) String eatenAt) {
+            @P(value = "когда съедено: ISO-8601 в локальном времени пользователя, например 2025-03-01T13:30; пусто = сейчас", required = false) String eatenAt,
+            @P(value = "приём пищи: BREAKFAST, LUNCH, DINNER; если пользователь не назвал завтрак/обед/ужин — не передавай (будет OTHER)", required = false) String mealType) {
         return run(() -> {
             if (dishVersionId == null || grams == null) {
                 return "Ошибка: dishVersionId и grams обязательны.";
@@ -200,7 +202,8 @@ public class AgentTools {
             if (v.isEmpty()) {
                 return "Ошибка: активной версии с id " + dishVersionId + " нет. Вызови find_dish заново.";
             }
-            MealEntry e = meals.logMeal(user, v.get(), grams, parseTime(eatenAt));
+            MealType type = MealType.parse(mealType);
+            MealEntry e = meals.logMeal(user, v.get(), grams, parseTime(eatenAt), type == null ? MealType.OTHER : type);
             ctx.markDayChanged();
             ctx.added(e.nutrition());
             return "Записано: " + describe(e);
@@ -219,7 +222,8 @@ public class AgentTools {
             @P(value = "клетчатка на 100 г", required = false) Double fiberPer100g,
             @P(value = "LOW, MEDIUM или HIGH", required = false) String confidence,
             @P(value = "допущения оценки", required = false) String assumptions,
-            @P(value = "когда съедено, ISO-8601 локальное время; пусто = сейчас", required = false) String eatenAt) {
+            @P(value = "когда съедено, ISO-8601 локальное время; пусто = сейчас", required = false) String eatenAt,
+            @P(value = "приём пищи: BREAKFAST, LUNCH, DINNER; если пользователь не назвал завтрак/обед/ужин — не передавай (будет OTHER)", required = false) String mealType) {
         return run(() -> {
             if (name == null || name.isBlank() || grams == null || kcalPer100g == null || proteinPer100g == null
                     || fatPer100g == null || carbsPer100g == null) {
@@ -237,8 +241,9 @@ public class AgentTools {
                 return gate.error();
             }
             String conf = gate.low() ? "LOW" : normConfidence(confidence);
+            MealType type = MealType.parse(mealType);
             MealEntry e = meals.logEstimate(user, name.trim(), grams, per100, parseTime(eatenAt), conf,
-                    withWarnings(assumptions, gate, vr));
+                    withWarnings(assumptions, gate, vr), type == null ? MealType.OTHER : type);
             ctx.markDayChanged();
             ctx.added(e.nutrition());
             return "Записано по оценке: " + describe(e);
@@ -255,7 +260,8 @@ public class AgentTools {
             @P(value = "новые белки порции, г", required = false) Double proteinG,
             @P(value = "новые жиры порции, г", required = false) Double fatG,
             @P(value = "новые углеводы порции, г", required = false) Double carbsG,
-            @P(value = "новая клетчатка порции, г", required = false) Double fiberG) {
+            @P(value = "новая клетчатка порции, г", required = false) Double fiberG,
+            @P(value = "новый приём пищи: BREAKFAST, LUNCH, DINNER или OTHER; пусто = не менять", required = false) String mealType) {
         return run(() -> {
             Optional<MealEntry> found = entryId == null ? Optional.empty() : meals.find(user, entryId);
             if (found.isEmpty()) {
@@ -279,7 +285,8 @@ public class AgentTools {
                 }
             }
             OffsetDateTime at = eatenAt == null || eatenAt.isBlank() ? old.eatenAt() : parseTime(eatenAt);
-            if (!meals.update(user, old.id(), at, newGrams, n)) {
+            MealType type = MealType.parse(mealType);
+            if (!meals.update(user, old.id(), at, newGrams, n, type == null ? old.mealType() : type)) {
                 return "Не удалось обновить запись.";
             }
             ctx.markDayChanged();
@@ -310,9 +317,7 @@ public class AgentTools {
             if (entries.isEmpty()) {
                 sb.append("записей нет.\n");
             }
-            for (MealEntry e : entries) {
-                sb.append("- ").append(describe(e)).append('\n');
-            }
+            sb.append(SummaryFormatter.entriesByType(entries, e -> "- " + describe(e)));
             sb.append("Итого: ").append(SummaryFormatter.nutrition(totals.nutrition()));
             if (day.equals(meals.today(user))) {
                 ctx.showTotals();
@@ -476,8 +481,9 @@ public class AgentTools {
 
     private String describe(MealEntry e) {
         ZoneId zone = user.zone();
-        return String.format(Locale.ROOT, "id=%d «%s» %s г в %s — %s%s", e.id(), e.name(), fmtG(e.grams()),
+        return String.format(Locale.ROOT, "id=%d «%s» %s г в %s%s — %s%s", e.id(), e.name(), fmtG(e.grams()),
                 e.eatenAt().atZoneSameInstant(zone).format(DateTimeFormatter.ofPattern("dd.MM HH:mm")),
+                e.mealType() == MealType.OTHER ? "" : " (" + e.mealType().label().toLowerCase(Locale.ROOT) + ")",
                 SummaryFormatter.nutrition(e.nutrition()),
                 "LOW".equals(e.confidence()) || (e.assumptions() != null && !e.assumptions().isBlank())
                         ? " [уверенность: " + DishFormat.confidenceRu(e.confidence())

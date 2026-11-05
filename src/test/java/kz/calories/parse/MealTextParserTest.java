@@ -65,6 +65,27 @@ class MealTextParserTest {
         assertThat(show("Курица 0,3 кг, хлеб 30 г")).isEqualTo("курица=300; хлеб=30");
     }
 
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            Завтрак: хлеб 30, молоко 100 | BREAKFAST | хлеб=30; молоко=100
+            Хлеб 30, сыр 20 на завтрак | BREAKFAST | хлеб=30; сыр=20
+            на обед суп 300, хлеб 20 | LUNCH | суп=300; хлеб=20
+            Ужин - творог 150 | DINNER | творог=150
+            Пообедал: борщ 300 | LUNCH | борщ=300
+            Хлеб 30, молоко 100 | OTHER | хлеб=30; молоко=100
+            """)
+    void mealTypeFromKeywords(String input, String type, String items) {
+        MealTextParser.ParsedMessage m = MealTextParser.parse(input.trim());
+        assertThat(m.ok()).isTrue();
+        assertThat(m.mealType().name()).isEqualTo(type.trim());
+        assertThat(show(input.trim())).isEqualTo(items.trim());
+    }
+
+    @Test
+    void severalMealTypesGoToLlm() {
+        assertThat(show("Завтрак хлеб 30, обед суп 300")).isEqualTo("LLM");
+    }
+
     @Test
     void activityAndDurationGoToLlm() {
         assertThat(show("Силовая тренировка добавь активность 50 минут")).isEqualTo("LLM");

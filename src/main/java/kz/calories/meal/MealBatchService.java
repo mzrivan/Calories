@@ -51,7 +51,12 @@ public class MealBatchService {
         }
     }
 
-    public record Payload(List<Line> lines, OffsetDateTime eatenAt, String originalText) {}
+    /** mealType == null у черновиков, созданных до появления признака, — читается как OTHER. */
+    public record Payload(List<Line> lines, OffsetDateTime eatenAt, String originalText, MealType mealType) {
+        MealType type() {
+            return mealType == null ? MealType.OTHER : mealType;
+        }
+    }
 
     public record Confirmed(String text) {}
 
@@ -79,7 +84,7 @@ public class MealBatchService {
         this.tx = tx;
     }
 
-    public AgentReply process(AppUser user, List<ParsedItem> items, String originalText) {
+    public AgentReply process(AppUser user, List<ParsedItem> items, String originalText, MealType mealType) {
         for (ParsedItem it : items) {
             if (it.grams() != null) {
                 ValidationResult g = validator.validateGrams(it.grams());
@@ -139,16 +144,16 @@ public class MealBatchService {
         }
 
         OffsetDateTime at = OffsetDateTime.now(user.zone());
-        Payload payload = new Payload(lines, at, originalText);
+        Payload payload = new Payload(lines, at, originalText, mealType == null ? MealType.OTHER : mealType);
         boolean needsConfirm = lines.stream().anyMatch(l -> l.source() != Source.EXACT);
         if (!needsConfirm) {
             UUID batch = UUID.randomUUID();
             List<MealEntry> entries = tx.execute(s -> commit(user, payload, batch));
-            return AgentReply.text(recorded(user, entries, failed)).withUndo(batch.toString());
+            return AgentReply.text(recorded(user, entries, failed, payload.type())).withUndo(batch.toString());
         }
         long draftId = drafts.create(user.id(), toJson(payload), props.drafts().ttlHours());
         return new AgentReply("Проверьте список — после подтверждения запишу в дневник.", List.of(
-                AgentContext.DraftCard.meals(draftId, card(lines, failed))));
+                AgentContext.DraftCard.meals(draftId, card(lines, failed, payload.type()))));
     }
 
     /** Подтверждение карточки кнопкой. */
@@ -168,8 +173,9 @@ public class MealBatchService {
         if (!drafts.transition(draftId, "CONFIRMED")) {
             throw new IllegalStateException("Черновик уже обработан");
         }
-        List<MealEntry> entries = commit(user, fromJson(row.payloadJson()), UUID.randomUUID());
-        return new Confirmed(recorded(user, entries, List.of()));
+        Payload payload = fromJson(row.payloadJson());
+        List<MealEntry> entries = commit(user, payload, UUID.randomUUID());
+        return new Confirmed(recorded(user, entries, List.of(), payload.type()));
     }
 
     public boolean cancel(AppUser user, long draftId) {
@@ -201,7 +207,7 @@ public class MealBatchService {
             } else if (l.source() == Source.APPROX && l.requested() != null) {
                 dishes.saveAlias(l.requested(), Names.normalize(l.name()));
             }
-            out.add(meals.logLine(user, l.name(), dvId, l.grams(), l.per100(), p.eatenAt(), l.confidence(), assumptions, batch));
+            out.add(meals.logLine(user, l.name(), dvId, l.grams(), l.per100(), p.eatenAt(), l.confidence(), assumptions, batch, p.type()));
         }
         return out;
     }
@@ -277,8 +283,12 @@ public class MealBatchService {
         throw last == null ? new IllegalStateException("нет ответа") : last;
     }
 
-    private String recorded(AppUser user, List<MealEntry> entries, List<String> failed) {
-        StringBuilder sb = new StringBuilder("✅ Записано:\n");
+    private String recorded(AppUser user, List<MealEntry> entries, List<String> failed, MealType type) {
+        StringBuilder sb = new StringBuilder("✅ Записано");
+        if (type != MealType.OTHER) {
+            sb.append(" (").append(type.label().toLowerCase(Locale.ROOT)).append(')');
+        }
+        sb.append(":\n");
         for (MealEntry e : entries) {
             sb.append(String.format(Locale.ROOT, "• %s, %s г — %s%n", e.name(), g(e.grams()), SummaryFormatter.nutrition(e.nutrition())));
         }
@@ -295,8 +305,12 @@ public class MealBatchService {
         return sb.append('\n').append(meals.todayBlock(user)).toString();
     }
 
-    private static String card(List<Line> lines, List<String> failed) {
-        StringBuilder sb = new StringBuilder("Проверьте список:\n");
+    private static String card(List<Line> lines, List<String> failed, MealType type) {
+        StringBuilder sb = new StringBuilder("Проверьте список");
+        if (type != MealType.OTHER) {
+            sb.append(" (").append(type.label().toLowerCase(Locale.ROOT)).append(')');
+        }
+        sb.append(":\n");
         for (Line l : lines) {
             sb.append(String.format(Locale.ROOT, "• %s, %s г — %s", l.name(), g(l.grams()), SummaryFormatter.nutrition(l.portion())));
             switch (l.source()) {

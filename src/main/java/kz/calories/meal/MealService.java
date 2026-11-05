@@ -22,26 +22,26 @@ public class MealService {
     }
 
     /** Масштабирование без LLM: значения на 100 г × граммы. */
-    public MealEntry logMeal(AppUser user, DishVersion version, double grams, OffsetDateTime eatenAt) {
+    public MealEntry logMeal(AppUser user, DishVersion version, double grams, OffsetDateTime eatenAt, MealType mealType) {
         Nutrition n = version.per100().forGrams(grams).rounded();
         long id = repo.insert(user.id(), eatenAt, version.name(), version.id(), grams, n, version.confidence(),
-                version.assumptions());
+                version.assumptions(), mealType);
         return repo.find(user.id(), id).orElseThrow();
     }
 
     public MealEntry logEstimate(AppUser user, String name, double grams, Nutrition per100, OffsetDateTime eatenAt,
-                                 String confidence, String assumptions) {
+                                 String confidence, String assumptions, MealType mealType) {
         Nutrition n = per100.forGrams(grams).rounded();
         String note = "приблизительная оценка" + (assumptions == null || assumptions.isBlank() ? "" : "; " + assumptions);
-        long id = repo.insert(user.id(), eatenAt, name, null, grams, n, confidence, note);
+        long id = repo.insert(user.id(), eatenAt, name, null, grams, n, confidence, note, mealType);
         return repo.find(user.id(), id).orElseThrow();
     }
 
     /** Запись одной позиции пачки: значения на 100 г масштабируются кодом. */
     public MealEntry logLine(AppUser user, String name, Long dishVersionId, double grams, Nutrition per100,
-                             OffsetDateTime eatenAt, String confidence, String assumptions, UUID batchId) {
+                             OffsetDateTime eatenAt, String confidence, String assumptions, UUID batchId, MealType mealType) {
         Nutrition n = per100.forGrams(grams).rounded();
-        long id = repo.insert(user.id(), eatenAt, name, dishVersionId, grams, n, confidence, assumptions, batchId);
+        long id = repo.insert(user.id(), eatenAt, name, dishVersionId, grams, n, confidence, assumptions, batchId, mealType);
         return repo.find(user.id(), id).orElseThrow();
     }
 
@@ -57,8 +57,8 @@ public class MealService {
         return repo.lastActive(user.id());
     }
 
-    public boolean update(AppUser user, long id, OffsetDateTime eatenAt, double grams, Nutrition n) {
-        return repo.update(user.id(), id, eatenAt, grams, n.rounded());
+    public boolean update(AppUser user, long id, OffsetDateTime eatenAt, double grams, Nutrition n, MealType mealType) {
+        return repo.update(user.id(), id, eatenAt, grams, n.rounded(), mealType);
     }
 
     public Optional<MealEntry> deactivate(AppUser user, long id) {

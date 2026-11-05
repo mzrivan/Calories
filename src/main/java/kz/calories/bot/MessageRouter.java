@@ -144,7 +144,7 @@ public class MessageRouter {
             return agent.handle(user, text);
         }
         chat.save(user.id(), true, text);
-        AgentReply reply = batches.process(user, pm.items(), text);
+        AgentReply reply = batches.process(user, pm.items(), text, pm.mealType());
         chat.save(user.id(), false, reply.text());
         return reply;
     }
@@ -284,10 +284,8 @@ public class MessageRouter {
         if (entries.isEmpty()) {
             sb.append("Сегодня записей пока нет.\n\n");
         } else {
-            for (var e : entries) {
-                sb.append(String.format(Locale.ROOT, "• %s, %s г — %s%n", e.name(), SummaryFormatter.num(e.grams()),
-                        SummaryFormatter.nutrition(e.nutrition())));
-            }
+            sb.append(SummaryFormatter.entriesByType(entries, e -> String.format(Locale.ROOT, "• %s, %s г — %s",
+                    e.name(), SummaryFormatter.num(e.grams()), SummaryFormatter.nutrition(e.nutrition()))));
             sb.append('\n');
         }
         sb.append(meals.todayBlock(user));

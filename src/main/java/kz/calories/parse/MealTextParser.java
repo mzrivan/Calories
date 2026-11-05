@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import kz.calories.meal.MealType;
 
 /**
  * Разбор сообщения как списка «блюдо + вес»: «Хлеб 13, картошка 300», «70 йогурт, 7 карамель»,
@@ -13,9 +14,10 @@ import java.util.regex.Pattern;
  */
 public final class MealTextParser {
 
-    public record ParsedMessage(boolean ok, List<ParsedItem> items, String reason) {
+    /** mealType — приём пищи из ключевых слов («на обед», «завтрак:»); OTHER, если слов нет. */
+    public record ParsedMessage(boolean ok, List<ParsedItem> items, String reason, MealType mealType) {
         static ParsedMessage fail(String reason) {
-            return new ParsedMessage(false, List.of(), reason);
+            return new ParsedMessage(false, List.of(), reason, MealType.OTHER);
         }
     }
 
@@ -53,7 +55,11 @@ public final class MealTextParser {
         if (text == null || text.isBlank()) {
             return ParsedMessage.fail("пусто");
         }
-        String t = text.trim();
+        MealType.Extracted meal = MealType.extract(text.trim());
+        if (meal.ambiguous()) {
+            return ParsedMessage.fail("несколько приёмов пищи — нужен разбор LLM");
+        }
+        String t = meal.text();
         if (t.length() > MAX_LEN) {
             return ParsedMessage.fail("слишком длинное");
         }
@@ -81,7 +87,7 @@ public final class MealTextParser {
         if (items.size() > MAX_ITEMS) {
             return ParsedMessage.fail("слишком много позиций");
         }
-        return new ParsedMessage(true, items, null);
+        return new ParsedMessage(true, items, null, meal.type());
     }
 
     /** null = успех (позиции добавлены), иначе причина отказа. */

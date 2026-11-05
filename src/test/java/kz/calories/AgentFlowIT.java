@@ -46,7 +46,7 @@ class AgentFlowIT extends IntegrationTestBase {
 
         llm.script = t -> {
             AgentTools tools = (AgentTools) t;
-            return tools.logMeal(v1.id(), 300.0, null);
+            return tools.logMeal(v1.id(), 300.0, null, null);
         };
         AgentReply first = say(1001, "съел борщ (300 г)"); // скобки → разбор моделью
         assertThat(first.text()).contains("Итого за сегодня");
@@ -86,11 +86,11 @@ class AgentFlowIT extends IntegrationTestBase {
 
     @Test
     void totalsAreSeparatePerUserAndForeignUserIsIgnored() {
-        llm.script = t -> ((AgentTools) t).logEstimate("яблоко", 100.0, 52.0, 0.3, 0.2, 13.8, 2.4, "MEDIUM", null, null);
+        llm.script = t -> ((AgentTools) t).logEstimate("яблоко", 100.0, 52.0, 0.3, 0.2, 13.8, 2.4, "MEDIUM", null, null, null);
         AgentReply a = say(1003, "съел яблоко");
         assertThat(a.text()).contains("Итого за сегодня: 52 ккал");
 
-        llm.script = t -> ((AgentTools) t).logEstimate("банан", 100.0, 89.0, 1.1, 0.3, 22.8, 2.6, "MEDIUM", null, null);
+        llm.script = t -> ((AgentTools) t).logEstimate("банан", 100.0, 89.0, 1.1, 0.3, 22.8, 2.6, "MEDIUM", null, null, null);
         AgentReply b = say(1002, "съел банан");
         assertThat(b.text()).contains("Итого за сегодня: 89 ккал");
 
@@ -99,7 +99,7 @@ class AgentFlowIT extends IntegrationTestBase {
 
     @Test
     void deactivationNeverDeletesRows() {
-        llm.script = t -> ((AgentTools) t).logEstimate("печенье", 50.0, 480.0, 6.0, 20.0, 66.0, null, "LOW", null, null);
+        llm.script = t -> ((AgentTools) t).logEstimate("печенье", 50.0, 480.0, 6.0, 20.0, 66.0, null, "LOW", null, null, null);
         say(1002, "съел печенье");
         long id = jdbc.sql("select max(id) from meal_entry where name = 'печенье'").query(Long.class).single();
         llm.script = t -> ((AgentTools) t).deactivateMealEntry(id);

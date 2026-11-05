@@ -14,7 +14,7 @@ import org.springframework.stereotype.Repository;
 public class MealRepository {
 
     private static final String COLS = "id, user_id, eaten_at, name, dish_version_id, grams, kcal, protein_g, fat_g, carbs_g, "
-            + "fiber_g, confidence, assumptions";
+            + "fiber_g, confidence, assumptions, meal_type";
 
     private final JdbcClient jdbc;
 
@@ -23,19 +23,20 @@ public class MealRepository {
     }
 
     public long insert(long userId, OffsetDateTime eatenAt, String name, Long dishVersionId, double grams,
-                       Nutrition n, String confidence, String assumptions) {
-        return insert(userId, eatenAt, name, dishVersionId, grams, n, confidence, assumptions, null);
+                       Nutrition n, String confidence, String assumptions, MealType mealType) {
+        return insert(userId, eatenAt, name, dishVersionId, grams, n, confidence, assumptions, null, mealType);
     }
 
     public long insert(long userId, OffsetDateTime eatenAt, String name, Long dishVersionId, double grams,
-                       Nutrition n, String confidence, String assumptions, UUID batchId) {
+                       Nutrition n, String confidence, String assumptions, UUID batchId, MealType mealType) {
         return jdbc.sql("""
                 insert into meal_entry (user_id, eaten_at, name, dish_version_id, grams, kcal, protein_g, fat_g, carbs_g,
-                    fiber_g, confidence, assumptions, batch_id)
-                values (:u, :at, :name, :dv, :g, :kcal, :p, :f, :c, :fi, :conf, :assum, :batch) returning id""")
+                    fiber_g, confidence, assumptions, batch_id, meal_type)
+                values (:u, :at, :name, :dv, :g, :kcal, :p, :f, :c, :fi, :conf, :assum, :batch, :mt) returning id""")
                 .param("u", userId).param("at", eatenAt).param("name", name).param("dv", dishVersionId)
                 .param("g", grams).param("kcal", n.kcal()).param("p", n.protein()).param("f", n.fat())
                 .param("c", n.carbs()).param("fi", n.fiber()).param("conf", confidence).param("assum", assumptions).param("batch", batchId)
+                .param("mt", (mealType == null ? MealType.OTHER : mealType).name())
                 .query(Long.class).single();
     }
 
@@ -45,13 +46,13 @@ public class MealRepository {
                 .param("id", id).param("u", userId).query(this::map).optional();
     }
 
-    public boolean update(long userId, long id, OffsetDateTime eatenAt, double grams, Nutrition n) {
+    public boolean update(long userId, long id, OffsetDateTime eatenAt, double grams, Nutrition n, MealType mealType) {
         return jdbc.sql("""
                 update meal_entry set eaten_at = :at, grams = :g, kcal = :kcal, protein_g = :p, fat_g = :f,
-                    carbs_g = :c, fiber_g = :fi
+                    carbs_g = :c, fiber_g = :fi, meal_type = :mt
                 where id = :id and user_id = :u and active""")
                 .param("at", eatenAt).param("g", grams).param("kcal", n.kcal()).param("p", n.protein())
-                .param("f", n.fat()).param("c", n.carbs()).param("fi", n.fiber())
+                .param("f", n.fat()).param("c", n.carbs()).param("fi", n.fiber()).param("mt", mealType.name())
                 .param("id", id).param("u", userId).update() > 0;
     }
 
@@ -101,6 +102,6 @@ public class MealRepository {
                 rs.getString("name"), dishVersionId, rs.getDouble("grams"),
                 new Nutrition(rs.getDouble("kcal"), rs.getDouble("protein_g"), rs.getDouble("fat_g"),
                         rs.getDouble("carbs_g"), fiber),
-                rs.getString("confidence"), rs.getString("assumptions"));
+                rs.getString("confidence"), rs.getString("assumptions"), MealType.valueOf(rs.getString("meal_type")));
     }
 }

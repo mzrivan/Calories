@@ -44,6 +44,35 @@ class SummaryFormatterTest {
         assertThat(SummaryFormatter.num(-0.04)).isEqualTo("0");
     }
 
+    private static MealEntry entry(String name, double kcal, MealType type) {
+        return new MealEntry(1, 1, java.time.OffsetDateTime.now(), name, null, 100, new Nutrition(kcal, 1, 1, 1, null),
+                "MEDIUM", null, type);
+    }
+
+    @Test
+    void entriesAreGroupedByMealType() {
+        var entries = java.util.List.of(
+                entry("Суп", 200, MealType.LUNCH), entry("Хлеб", 80, MealType.BREAKFAST),
+                entry("Яблоко", 50, MealType.OTHER), entry("Сыр", 120, MealType.BREAKFAST));
+        assertThat(SummaryFormatter.entriesByType(entries, e -> "• " + e.name())).isEqualTo("""
+                🍳 Завтрак — 200 ккал
+                • Хлеб
+                • Сыр
+
+                🍲 Обед — 200 ккал
+                • Суп
+
+                🍎 Остальное — 50 ккал
+                • Яблоко
+                """);
+    }
+
+    @Test
+    void noHeadersWhenOnlyOther() {
+        var entries = java.util.List.of(entry("Хлеб", 80, MealType.OTHER));
+        assertThat(SummaryFormatter.entriesByType(entries, e -> "• " + e.name())).isEqualTo("• Хлеб\n");
+    }
+
     @Test
     void normalizeNames() {
         assertThat(Names.normalize("  Борщ   Зелёный ")).isEqualTo("борщ зеленый");
