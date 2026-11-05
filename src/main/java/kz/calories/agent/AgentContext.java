@@ -20,6 +20,7 @@ public class AgentContext {
     }
 
     private final List<DraftCard> cards = new ArrayList<>();
+    private final List<kz.calories.validation.Nutrition> added = new ArrayList<>();
     private final Map<String, Integer> validationFailures = new HashMap<>();
     private java.time.LocalDate balanceDay;
     private boolean dayChanged;
@@ -38,6 +39,15 @@ public class AgentContext {
     public void markDayChanged() {
         this.dayChanged = true;
         this.wrote = true;
+    }
+
+    /** Записана порция в этом ходе — нужна для суммы «Всего добавлено», если записей несколько. */
+    public void added(kz.calories.validation.Nutrition n) {
+        added.add(n);
+    }
+
+    public List<kz.calories.validation.Nutrition> addedNutrition() {
+        return added;
     }
 
     /** Показать итоги дня в конце ответа без побочных эффектов. */

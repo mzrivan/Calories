@@ -66,6 +66,14 @@ class MealTextParserTest {
     }
 
     @Test
+    void activityAndDurationGoToLlm() {
+        assertThat(show("Силовая тренировка добавь активность 50 минут")).isEqualTo("LLM");
+        assertThat(show("Силовая тренировка 50 минут")).isEqualTo("LLM");
+        assertThat(show("бег 1 час")).isEqualTo("LLM");
+        assertThat(show("кардио 40мин")).isEqualTo("LLM");
+    }
+
+    @Test
     void ambiguousOrIncompleteGoToLlm() {
         // две позиции слиплись, жирность и вес неразличимы
         assertThat(show("83 творог 0.1 йогурт 40 1.5")).isEqualTo("LLM");

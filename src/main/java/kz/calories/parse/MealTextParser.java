@@ -27,7 +27,11 @@ public final class MealTextParser {
     private static final Pattern GLUE = Pattern.compile("(?<=\\d)(?=\\p{L})");
     private static final Pattern SEGMENTS = Pattern.compile(
             "\\s*[;\\n]+\\s*|,\\s+|,$|\\s+плюс\\s+|^плюс\\s+", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    private static final Pattern NUM = Pattern.compile("\\d+(?:[.,]\\d+)?");
+    /** Время («50 минут», «1 час», «40 мин») и слова про активность — это не еда, отдаём LLM-агенту. */
+    private static final Pattern ACTIVITY = Pattern.compile(
+            "\\d\\s*(?:мин\\p{L}*|час\\p{L}*|ч)(?![\\p{L}])|тренировк\\p{L}*|активност\\p{L}*|\\bкардио\\b|\\bбегал\\p{L}*|\\bпробежк\\p{L}*",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern NUM =Pattern.compile("\\d+(?:[.,]\\d+)?");
     private static final Pattern PCT = Pattern.compile("\\d+(?:[.,]\\d+)?%");
 
     private static final Set<String> STOP = Set.of("ещё", "еще", "плюс", "на", "примерно", "около", "~", "≈", "съел", "съела", "выпил", "выпила",
@@ -55,6 +59,9 @@ public final class MealTextParser {
         }
         if (t.contains("(") || t.contains(")") || t.contains(":") || t.contains("?") || t.contains("/")) {
             return ParsedMessage.fail("скобки/двоеточие/вопрос — нужен разбор LLM");
+        }
+        if (ACTIVITY.matcher(t).find()) {
+            return ParsedMessage.fail("активность/время — нужен разбор LLM");
         }
         t = FAT.matcher(t).replaceAll("$1%");
         t = GLUE.matcher(t).replaceAll(" ");

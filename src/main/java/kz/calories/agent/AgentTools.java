@@ -202,6 +202,7 @@ public class AgentTools {
             }
             MealEntry e = meals.logMeal(user, v.get(), grams, parseTime(eatenAt));
             ctx.markDayChanged();
+            ctx.added(e.nutrition());
             return "Записано: " + describe(e);
         });
     }
@@ -239,6 +240,7 @@ public class AgentTools {
             MealEntry e = meals.logEstimate(user, name.trim(), grams, per100, parseTime(eatenAt), conf,
                     withWarnings(assumptions, gate, vr));
             ctx.markDayChanged();
+            ctx.added(e.nutrition());
             return "Записано по оценке: " + describe(e);
         });
     }

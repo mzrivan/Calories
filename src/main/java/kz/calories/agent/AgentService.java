@@ -87,6 +87,13 @@ public class AgentService {
         } else {
             reply.append(answer == null || answer.isBlank() ? "Готово." : answer.trim());
         }
+        if (ctx.addedNutrition().size() > 1) {
+            kz.calories.validation.Nutrition sum = kz.calories.validation.Nutrition.ZERO;
+            for (var n : ctx.addedNutrition()) {
+                sum = sum.plus(n);
+            }
+            reply.append("\n\nВсего добавлено: ").append(kz.calories.meal.SummaryFormatter.nutrition(sum));
+        }
         if (ctx.dayChanged()) {
             AppUser fresh = users.findById(user.id()).orElse(user); // цели могли измениться в этом ходе
             reply.append("\n\n").append(meals.todayBlock(fresh));

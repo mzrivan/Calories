@@ -282,6 +282,13 @@ public class MealBatchService {
         for (MealEntry e : entries) {
             sb.append(String.format(Locale.ROOT, "• %s, %s г — %s%n", e.name(), g(e.grams()), SummaryFormatter.nutrition(e.nutrition())));
         }
+        if (entries.size() > 1) {
+            Nutrition sum = Nutrition.ZERO;
+            for (MealEntry e : entries) {
+                sum = sum.plus(e.nutrition());
+            }
+            sb.append("Всего добавлено: ").append(SummaryFormatter.nutrition(sum)).append('\n');
+        }
         if (!failed.isEmpty()) {
             sb.append("Не записано (нет данных): ").append(String.join(", ", failed)).append('\n');
         }
