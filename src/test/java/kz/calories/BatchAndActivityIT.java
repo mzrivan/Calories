@@ -118,6 +118,47 @@ class BatchAndActivityIT extends IntegrationTestBase {
     }
 
     @Test
+    void userDeletesEntriesByNumberAndId() {
+        long tg = 1004;
+        say(tg, "Хлеб 13, молоко 60, мандарин 24");
+        assertThat(entries(tg)).isEqualTo(3);
+        String today = say(tg, "/today").text();
+        assertThat(today).contains("1. ").contains("2. ").contains("3. ").contains("(id ");
+
+        // по номеру: запись остаётся в БД, но неактивна
+        AgentReply del = say(tg, "/del 2");
+        assertThat(del.text()).contains("Убрано");
+        assertThat(entries(tg)).isEqualTo(2);
+        assertThat(jdbc.sql("select count(*) from meal_entry e join app_user u on u.id = e.user_id "
+                + "where u.telegram_id = :t and not e.active and e.deactivated_at is not null").param("t", tg)
+                .query(Long.class).single()).isEqualTo(1L);
+
+        // по id
+        long id = jdbc.sql("select e.id from meal_entry e join app_user u on u.id = e.user_id "
+                + "where u.telegram_id = :t and e.active order by e.id limit 1").param("t", tg).query(Long.class).single();
+        assertThat(say(tg, "/delmeal " + id).text()).contains("Убрано");
+        assertThat(entries(tg)).isEqualTo(1);
+        assertThat(say(tg, "/delmeal " + id).text()).contains("не найдена");
+
+        // несуществующий номер и чужие/неверные аргументы
+        assertThat(say(tg, "/del 9").text()).contains("нет записи №9");
+        assertThat(say(tg, "/del abc").text()).contains("Формат");
+        assertThat(say(tg, "/del 1 когда-нибудь").text()).contains("Не поняла дату");
+        assertThat(say(tg, "/delact 999999").text()).contains("не найдена");
+        assertThat(llm.chatCalls.get()).isZero();
+    }
+
+    @Test
+    void parseDay() {
+        java.time.LocalDate today = java.time.LocalDate.of(2026, 3, 10);
+        assertThat(MessageRouter.parseDay("вчера", today)).contains(today.minusDays(1));
+        assertThat(MessageRouter.parseDay("2026-03-01", today)).contains(java.time.LocalDate.of(2026, 3, 1));
+        assertThat(MessageRouter.parseDay("01.03", today)).contains(java.time.LocalDate.of(2026, 3, 1));
+        assertThat(MessageRouter.parseDay("31.12", today)).contains(java.time.LocalDate.of(2025, 12, 31));
+        assertThat(MessageRouter.parseDay("30.02", today)).isEmpty();
+    }
+
+    @Test
     void activityAndBalance() {
         long tg = 1003;
         assertThat(say(tg, "баланс").text()).contains("не хватает данных");

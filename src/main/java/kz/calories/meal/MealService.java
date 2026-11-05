@@ -86,6 +86,15 @@ public class MealService {
         return SummaryFormatter.totalsBlock(totalsOfDay(user, today(user)), user.goals());
     }
 
+    /** Блок «Итого за <день>» для произвольного дня. */
+    public String dayBlock(AppUser user, LocalDate day) {
+        if (day.equals(today(user))) {
+            return todayBlock(user);
+        }
+        return SummaryFormatter.totalsBlock(totalsOfDay(user, day), user.goals(),
+                day.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy")));
+    }
+
     private static OffsetDateTime start(LocalDate day, ZoneId zone) {
         ZonedDateTime z = day.atStartOfDay(zone);
         return z.toOffsetDateTime();

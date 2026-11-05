@@ -1,8 +1,13 @@
 package kz.calories.bot;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
+import kz.calories.energy.ActivityRepository;
+import kz.calories.meal.MealEntry;
 import java.util.Optional;
 import java.util.UUID;
 import kz.calories.agent.AgentReply;
@@ -45,13 +50,20 @@ public class MessageRouter {
             • «вот рецепт борща: … вышло 3 кг» — сохраню блюдо (после вашего подтверждения)
             • «творог Простоквашино 5%: 121 ккал, Б 16, Ж 5, У 3» — сохраню продукт
             • «Творог Простоквашино 121/16/5/3» — продукт: ккал/белки/жиры/углеводы[/клетчатка] на 100 г
-            • «не 400, а 300 г», «удали последнюю запись» — правки
+            • «не 400, а 300 г», «удали последнюю запись» — правки (можно попросить удалить блюдо или активность словами)
             • «цель 2000 ккал»
 
             Расход калорий:
             • один раз: «рост 178, возраст 35, пол м»
             • «вес 82,5», «шагов 9500» (можно «вчера шагов 8000»; данные за день можно обновлять)
             • «баланс» — съедено минус потрачено
+
+            Удаление (запись лишь помечается неактивной и больше не учитывается):
+            • /today [дата] — записи дня с номерами и id
+            • /del 3 [дата] — убрать запись №3 из списка дня (сначала еда, потом активности)
+            • /delmeal 345 — убрать запись еды по id, /delact 7 — активность по id
+            • /deldish 12 — деактивировать блюдо/продукт по id версии (id виден в /dishes)
+            Дата: «вчера», 2026-03-01 или 01.03.
 
             Команды: /today — итоги дня, /balance — расход и баланс, /weight, /steps, /profile,
             /dishes [поиск] — сохранённые блюда, /help — эта справка.""";
@@ -96,7 +108,15 @@ public class MessageRouter {
                 case "/help":
                     return Optional.of(AgentReply.text(HELP));
                 case "/today":
-                    return Optional.of(AgentReply.text(todayText(user)));
+                    return Optional.of(AgentReply.text(dayArg(user, arg, d -> dayText(user, d))));
+                case "/del":
+                    return Optional.of(AgentReply.text(logged(user, t, deleteByNumber(user, arg))));
+                case "/delmeal":
+                    return Optional.of(AgentReply.text(logged(user, t, deleteMeal(user, arg))));
+                case "/delact":
+                    return Optional.of(AgentReply.text(logged(user, t, deleteActivity(user, arg))));
+                case "/deldish":
+                    return Optional.of(AgentReply.text(logged(user, t, deleteDish(user, arg))));
                 case "/balance":
                     return Optional.of(AgentReply.text(BalanceFormatter.block(activity.balance(user, meals.today(user)))));
                 case "/dishes":
@@ -279,21 +299,166 @@ public class MessageRouter {
     }
 
     private String todayText(AppUser user) {
-        var entries = meals.entriesOfDay(user, meals.today(user));
+        return dayText(user, meals.today(user));
+    }
+
+    /** Записи дня с номерами (еда, затем активности — сквозная нумерация для /del N) и id. */
+    private String dayText(AppUser user, LocalDate day) {
+        boolean isToday = day.equals(meals.today(user));
+        List<MealEntry> entries = meals.entriesOfDay(user, day);
+        List<ActivityRepository.Entry> acts = activity.entriesOfDay(user, day);
         StringBuilder sb = new StringBuilder();
-        if (entries.isEmpty()) {
-            sb.append("Сегодня записей пока нет.\n\n");
+        if (entries.isEmpty() && acts.isEmpty()) {
+            sb.append(isToday ? "Сегодня записей пока нет." : day.format(DAY_FMT) + ": записей нет.").append("\n\n");
         } else {
-            sb.append(SummaryFormatter.entriesByType(entries, e -> String.format(Locale.ROOT, "• %s, %s г — %s",
-                    e.name(), SummaryFormatter.num(e.grams()), SummaryFormatter.nutrition(e.nutrition()))));
+            Map<Long, Integer> numbers = new HashMap<>();
+            for (int i = 0; i < entries.size(); i++) {
+                numbers.put(entries.get(i).id(), i + 1);
+            }
+            sb.append(SummaryFormatter.entriesByType(entries, e -> String.format(Locale.ROOT, "%d. %s, %s г — %s (id %d)",
+                    numbers.get(e.id()), e.name(), SummaryFormatter.num(e.grams()), SummaryFormatter.nutrition(e.nutrition()), e.id())));
+            if (!acts.isEmpty()) {
+                sb.append("\n🏃 Активности\n");
+                for (int i = 0; i < acts.size(); i++) {
+                    ActivityRepository.Entry a = acts.get(i);
+                    sb.append(String.format(Locale.ROOT, "%d. %s, %s мин — %s ккал (акт. id %d)%n", entries.size() + i + 1,
+                            a.name(), SummaryFormatter.num(a.minutes()), SummaryFormatter.num(a.kcal()), a.id()));
+                }
+            }
             sb.append('\n');
         }
-        sb.append(meals.todayBlock(user));
-        DayBalance b = activity.balance(user, meals.today(user));
+        sb.append(meals.dayBlock(user, day));
+        DayBalance b = activity.balance(user, day);
         if (b.known()) { // расход показываем, только если данные для него есть
             sb.append("\n\n").append(BalanceFormatter.block(b));
         }
         return sb.toString();
+    }
+
+    // ---------- удаление (мягкое: active = false) ----------
+
+    private static final java.time.format.DateTimeFormatter DAY_FMT = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    private static final String DEL_USAGE = "Формат: /del <номер> [дата] — номер из /today. Или /delmeal <id>, /delact <id>, /deldish <id>.";
+    private static final String BAD_DATE = "Не поняла дату «%s». Пример: вчера, 2026-03-01, 01.03.";
+
+    /** Сохраняет команду и ответ в историю чата, чтобы LLM знала об удалении. */
+    private String logged(AppUser user, String command, String reply) {
+        chat.save(user.id(), true, command);
+        chat.save(user.id(), false, reply);
+        return reply;
+    }
+
+    private String dayArg(AppUser user, String arg, Function<LocalDate, String> render) {
+        LocalDate today = meals.today(user);
+        if (arg.isBlank()) {
+            return render.apply(today);
+        }
+        return parseDay(arg, today).map(render).orElse(BAD_DATE.formatted(arg));
+    }
+
+    public static Optional<LocalDate> parseDay(String s, LocalDate today) {
+        String t = s.trim().toLowerCase(Locale.ROOT);
+        try {
+            switch (t) {
+                case "сегодня":
+                    return Optional.of(today);
+                case "вчера":
+                    return Optional.of(today.minusDays(1));
+                case "позавчера":
+                    return Optional.of(today.minusDays(2));
+                default:
+                    break;
+            }
+            if (t.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                return Optional.of(LocalDate.parse(t));
+            }
+            if (t.matches("\\d{1,2}\\.\\d{1,2}(\\.\\d{4})?")) {
+                String[] p = t.split("\\.");
+                int year = p.length > 2 ? Integer.parseInt(p[2]) : today.getYear();
+                LocalDate d = LocalDate.of(year, Integer.parseInt(p[1]), Integer.parseInt(p[0]));
+                return Optional.of(p.length > 2 || !d.isAfter(today) ? d : d.minusYears(1));
+            }
+        } catch (java.time.DateTimeException e) {
+            return Optional.empty();
+        }
+        return Optional.empty();
+    }
+
+    private String deleteByNumber(AppUser user, String arg) {
+        String[] a = arg.trim().split("\\s+");
+        if (arg.isBlank() || !a[0].matches("\\d{1,6}")) {
+            return DEL_USAGE;
+        }
+        LocalDate day = a.length > 1 ? parseDay(a[1], meals.today(user)).orElse(null) : meals.today(user);
+        if (day == null) {
+            return BAD_DATE.formatted(a[1]);
+        }
+        int n = Integer.parseInt(a[0]);
+        List<MealEntry> entries = meals.entriesOfDay(user, day);
+        List<ActivityRepository.Entry> acts = activity.entriesOfDay(user, day);
+        if (n < 1 || n > entries.size() + acts.size()) {
+            return "За " + day.format(DAY_FMT) + " нет записи №" + n + ". Список: /today" + (a.length > 1 ? " " + a[1] : "") + ".";
+        }
+        String removed;
+        if (n <= entries.size()) {
+            Optional<MealEntry> e = meals.deactivate(user, entries.get(n - 1).id());
+            if (e.isEmpty()) {
+                return "Запись уже удалена. Список: /today.";
+            }
+            removed = e.get().name() + ", " + SummaryFormatter.num(e.get().grams()) + " г";
+        } else {
+            Optional<ActivityRepository.Entry> e = activity.deactivateActivity(user, acts.get(n - entries.size() - 1).id());
+            if (e.isEmpty()) {
+                return "Активность уже удалена. Список: /today.";
+            }
+            removed = "активность «" + e.get().name() + "»";
+        }
+        return "🗑 Убрано: " + removed + ".\nНомера в списке сдвинулись — актуальные ниже.\n\n" + dayText(user, day);
+    }
+
+    private String deleteMeal(AppUser user, String arg) {
+        Optional<Long> id = parseId(arg);
+        if (id.isEmpty()) {
+            return "Формат: /delmeal <id записи> (id виден в /today).";
+        }
+        return meals.deactivate(user, id.get())
+                .map(e -> "🗑 Убрано: " + e.name() + ", " + SummaryFormatter.num(e.grams()) + " г.\n\n"
+                        + meals.dayBlock(user, e.eatenAt().atZoneSameInstant(user.zone()).toLocalDate()))
+                .orElse("Активная запись еды с id " + id.get() + " у вас не найдена.");
+    }
+
+    private String deleteActivity(AppUser user, String arg) {
+        Optional<Long> id = parseId(arg);
+        if (id.isEmpty()) {
+            return "Формат: /delact <id активности> (id виден в /today).";
+        }
+        return activity.deactivateActivity(user, id.get())
+                .map(e -> "🗑 Активность убрана: " + e.name() + ".\n\n" + BalanceFormatter.block(activity.balance(user, e.day())))
+                .orElse("Активная активность с id " + id.get() + " у вас не найдена.");
+    }
+
+    private String deleteDish(AppUser user, String arg) {
+        Optional<Long> id = parseId(arg);
+        if (id.isEmpty()) {
+            return "Формат: /deldish <id версии> (id виден в /dishes, например #12).";
+        }
+        Optional<DishVersion> v = dishes.findActiveVersion(id.get());
+        if (v.isEmpty()) {
+            return "Активной версии блюда с id " + id.get() + " нет.";
+        }
+        if (v.get().createdByUserId() == null) {
+            return "«" + v.get().name() + "» — из системного справочника, его нельзя деактивировать.";
+        }
+        dishes.deactivate(id.get());
+        return "🗑 Блюдо деактивировано: " + v.get().name() + " (#" + id.get() + ")."
+                + dishes.latestActive(v.get().name()).map(n -> "\nТеперь актуальна: " + DishFormat.line(n))
+                        .orElse("\nДругих активных версий нет.")
+                + "\nУже сделанные записи в дневнике не меняются — уберите их через /del.";
+    }
+
+    private static Optional<Long> parseId(String arg) {
+        String t = arg.trim().replaceFirst("^#", "");
+        return t.matches("\\d{1,18}") ? Optional.of(Long.parseLong(t)) : Optional.empty();
     }
 
     private static String profileText(AppUser user) {

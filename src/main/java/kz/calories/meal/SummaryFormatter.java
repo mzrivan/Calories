@@ -55,8 +55,13 @@ public final class SummaryFormatter {
     }
 
     public static String totalsBlock(DayTotals totals, AppUser.Goals goals) {
+        return totalsBlock(totals, goals, "сегодня");
+    }
+
+    /** label — «сегодня» или дата дня, напр. «01.03.2026». */
+    public static String totalsBlock(DayTotals totals, AppUser.Goals goals, String label) {
         Nutrition n = totals.nutrition();
-        StringBuilder sb = new StringBuilder("Итого за сегодня: ")
+        StringBuilder sb = new StringBuilder("Итого за ").append(label).append(": ")
                 .append(macros(n));
         if (n.fiber() != null) {
             sb.append(" · Клетч. ").append(num(n.fiber()));

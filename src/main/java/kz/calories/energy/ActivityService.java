@@ -117,6 +117,10 @@ public class ActivityService {
         return e;
     }
 
+    public List<ActivityRepository.Entry> entriesOfDay(AppUser user, LocalDate day) {
+        return repo.entriesOfDay(user.id(), day);
+    }
+
     /** Мягко убирает свою активность по id и пересчитывает день. */
     public Optional<ActivityRepository.Entry> deactivateActivity(AppUser user, long id) {
         Optional<ActivityRepository.Entry> e = repo.deactivateEntry(user.id(), id);
