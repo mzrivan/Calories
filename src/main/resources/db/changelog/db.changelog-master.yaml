@@ -11,3 +11,5 @@ databaseChangeLog:
       file: db/changelog/sql/005-activity-entry.sql
   - include:
       file: db/changelog/sql/006-meal-type.sql
+  - include:
+      file: db/changelog/sql/007-bot-message.sql

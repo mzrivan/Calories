@@ -20,12 +20,21 @@ public class AgentContext {
     }
 
     private final List<DraftCard> cards = new ArrayList<>();
+    private final List<RecordRef> records = new ArrayList<>();
     private final List<kz.calories.validation.Nutrition> added = new ArrayList<>();
     private final Map<String, Integer> validationFailures = new HashMap<>();
     private java.time.LocalDate balanceDay;
     private boolean dayChanged;
     private boolean wrote;
     private int toolCalls;
+
+    public List<RecordRef> records() {
+        return records;
+    }
+
+    public void reference(RecordRef.Kind kind, long id) {
+        records.add(new RecordRef(kind, id));
+    }
 
     public List<DraftCard> cards() {
         return cards;

@@ -63,7 +63,7 @@ public class DishRepository {
     }
 
     public List<DishVersion> listLatest(String likeFilter, int limit) {
-        return jdbc.sql("select * from (" + LATEST + ") l where :f = '' or normalized_name like :like order by name limit :lim")
+        return jdbc.sql("select * from (" + LATEST + ") l where :f = '' or normalized_name like :like order by created_at desc, id desc limit :lim")
                 .param("f", likeFilter == null ? "" : likeFilter)
                 .param("like", "%" + (likeFilter == null ? "" : likeFilter) + "%")
                 .param("lim", limit).query(this::map).list();

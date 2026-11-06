@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import kz.calories.agent.AgentContext;
 import kz.calories.agent.AgentReply;
+import kz.calories.agent.RecordRef;
 import kz.calories.config.AppProperties;
 import kz.calories.dish.DishFormat;
 import kz.calories.dish.DishMatcher;
@@ -21,6 +22,7 @@ import kz.calories.dish.DraftPayload;
 import kz.calories.dish.Names;
 import kz.calories.llm.AgentLlm;
 import kz.calories.parse.ParsedItem;
+import kz.calories.parse.MealTextParser;
 import kz.calories.user.AppUser;
 import kz.calories.validation.Nutrition;
 import kz.calories.validation.NutritionValidator;
@@ -58,7 +60,7 @@ public class MealBatchService {
         }
     }
 
-    public record Confirmed(String text) {}
+    public record Confirmed(String text, List<RecordRef> records) {}
 
     private final DishMatcher matcher;
     private final DishService dishes;
@@ -85,6 +87,25 @@ public class MealBatchService {
     }
 
     public AgentReply process(AppUser user, List<ParsedItem> items, String originalText, MealType mealType) {
+        return process(user, items, originalText, mealType, OffsetDateTime.now(user.zone()), false);
+    }
+
+    public AgentReply replaceDraft(AppUser user, long draftId, String text) {
+        MealDraftRepository.Row row = drafts.find(draftId)
+                .filter(r -> r.userId() == user.id() && "PENDING".equals(r.status())
+                        && r.expiresAt().isAfter(OffsetDateTime.now()))
+                .orElseThrow(() -> new IllegalArgumentException("Ожидающий черновик у пользователя не найден"));
+        MealTextParser.ParsedMessage parsed = MealTextParser.parse(text);
+        if (!parsed.ok()) {
+            throw new IllegalArgumentException("Нужен полный исправленный список в формате «хлеб 30, молоко 100»");
+        }
+        Payload old = fromJson(row.payloadJson());
+        return process(user, parsed.items(), text, parsed.mealType() == MealType.OTHER ? old.type() : parsed.mealType(),
+                old.eatenAt(), true);
+    }
+
+    private AgentReply process(AppUser user, List<ParsedItem> items, String originalText, MealType mealType,
+                               OffsetDateTime at, boolean forceConfirm) {
         for (ParsedItem it : items) {
             if (it.grams() != null) {
                 ValidationResult g = validator.validateGrams(it.grams());
@@ -143,13 +164,13 @@ public class MealBatchService {
                     + ". Напишите КБЖУ на 100 г или рецепт, и я сохраню блюдо.");
         }
 
-        OffsetDateTime at = OffsetDateTime.now(user.zone());
         Payload payload = new Payload(lines, at, originalText, mealType == null ? MealType.OTHER : mealType);
-        boolean needsConfirm = lines.stream().anyMatch(l -> l.source() != Source.EXACT);
+        boolean needsConfirm = forceConfirm || lines.stream().anyMatch(l -> l.source() != Source.EXACT);
         if (!needsConfirm) {
             UUID batch = UUID.randomUUID();
             List<MealEntry> entries = tx.execute(s -> commit(user, payload, batch));
-            return AgentReply.text(recorded(user, entries, failed, payload.type())).withUndo(batch.toString());
+            return AgentReply.text(recorded(user, entries, failed, payload.type())).withUndo(batch.toString())
+                    .withRecords(references(entries));
         }
         long draftId = drafts.create(user.id(), toJson(payload), props.drafts().ttlHours());
         return new AgentReply("Проверьте список — после подтверждения запишу в дневник.", List.of(
@@ -175,7 +196,11 @@ public class MealBatchService {
         }
         Payload payload = fromJson(row.payloadJson());
         List<MealEntry> entries = commit(user, payload, UUID.randomUUID());
-        return new Confirmed(recorded(user, entries, List.of(), payload.type()));
+        return new Confirmed(recorded(user, entries, List.of(), payload.type()), references(entries));
+    }
+
+    private static List<RecordRef> references(List<MealEntry> entries) {
+        return entries.stream().map(e -> new RecordRef(RecordRef.Kind.MEAL, e.id())).toList();
     }
 
     public boolean cancel(AppUser user, long draftId) {

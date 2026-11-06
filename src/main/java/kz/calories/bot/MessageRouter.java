@@ -11,6 +11,7 @@ import kz.calories.meal.MealEntry;
 import java.util.Optional;
 import java.util.UUID;
 import kz.calories.agent.AgentReply;
+import kz.calories.agent.RecordRef;
 import kz.calories.agent.AgentService;
 import kz.calories.agent.ChatRepository;
 import kz.calories.dish.DishFormat;
@@ -42,7 +43,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class MessageRouter {
 
-    public record CallbackResult(String toast, String newText) {}
+    public record CallbackResult(String toast, String newText, List<RecordRef> records) {
+        public CallbackResult(String toast, String newText) {
+            this(toast, newText, List.of());
+        }
+    }
 
     static final String HELP = """
             Я веду дневник питания и считаю расход калорий. Пишите обычным текстом:
@@ -59,6 +64,8 @@ public class MessageRouter {
             • «баланс» — съедено минус потрачено
 
             Удаление (запись лишь помечается неактивной и больше не учитывается):
+            • перешлите мне моё сообщение и напишите «удали», «отмени» или правку («измени вес на 200 г»)
+            • также можно ответить на моё сообщение командой или правкой
             • /today [дата] — записи дня с номерами и id
             • /del 3 [дата] — убрать запись №3 из списка дня (сначала еда, потом активности)
             • /delmeal 345 — убрать запись еды по id, /delact 7 — активность по id
@@ -267,7 +274,7 @@ public class MessageRouter {
                     DishVersion v = dishes.confirmDraft(draftId, user.id());
                     String done = "✅ Сохранено: " + DishFormat.line(v);
                     chat.save(user.id(), false, "[Пользователь подтвердил кнопкой, сохранена версия] " + done);
-                    return Optional.of(new CallbackResult("Сохранено", done));
+                    return Optional.of(new CallbackResult("Сохранено", done, List.of(new RecordRef(RecordRef.Kind.DISH, v.id()))));
                 }
                 case "cancel": {
                     boolean ok = dishes.cancelDraft(draftId, user.id());
@@ -279,7 +286,7 @@ public class MessageRouter {
                 case "mconfirm": {
                     MealBatchService.Confirmed c = batches.confirm(user, draftId);
                     chat.save(user.id(), false, "[Пользователь подтвердил кнопкой] " + c.text());
-                    return Optional.of(new CallbackResult("Записано", c.text()));
+                    return Optional.of(new CallbackResult("Записано", c.text(), c.records()));
                 }
                 case "mcancel": {
                     boolean ok = batches.cancel(user, draftId);

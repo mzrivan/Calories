@@ -13,6 +13,7 @@ import kz.calories.energy.ActivityService;
 import kz.calories.energy.BalanceFormatter;
 import kz.calories.llm.AgentLlm;
 import kz.calories.meal.MealService;
+import kz.calories.meal.MealBatchService;
 import kz.calories.user.AppUser;
 import kz.calories.user.UserService;
 import kz.calories.validation.NutritionValidator;
@@ -32,19 +33,21 @@ public class AgentService {
     private final DishMatcher matcher;
     private final ActivityService activity;
     private final MealService meals;
+    private final MealBatchService batches;
     private final UserService users;
     private final NutritionValidator validator;
     private final AppProperties props;
     private final Map<Long, Deque<Long>> recentRequests = new ConcurrentHashMap<>();
 
     public AgentService(AgentLlm llm, ChatRepository chat, DishService dishes, DishMatcher matcher, ActivityService activity,
-                        MealService meals, UserService users, NutritionValidator validator, AppProperties props) {
+                        MealService meals, MealBatchService batches, UserService users, NutritionValidator validator, AppProperties props) {
         this.matcher = matcher;
         this.activity = activity;
         this.llm = llm;
         this.chat = chat;
         this.dishes = dishes;
         this.meals = meals;
+        this.batches = batches;
         this.users = users;
         this.validator = validator;
         this.props = props;
@@ -58,7 +61,7 @@ public class AgentService {
         chat.save(user.id(), true, text); // сообщение не теряется, даже если LLM недоступна
 
         AgentContext ctx = new AgentContext();
-        AgentTools tools = new AgentTools(user, ctx, dishes, matcher, activity, meals, users, validator, props);
+        AgentTools tools = new AgentTools(user, ctx, dishes, matcher, activity, meals, batches, users, validator, props);
         String answer = null;
         boolean failed = false;
         int attempts = Math.max(1, props.llm().retries());
@@ -104,7 +107,7 @@ public class AgentService {
         }
         String out = reply.toString();
         chat.save(user.id(), false, out);
-        return new AgentReply(out, ctx.cards());
+        return new AgentReply(out, ctx.cards()).withRecords(ctx.records());
     }
 
     private SystemPrompt.Params promptParams(AppUser user) {

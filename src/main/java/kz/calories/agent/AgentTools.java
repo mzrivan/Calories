@@ -24,6 +24,7 @@ import kz.calories.dish.DraftPayload;
 import kz.calories.meal.DayTotals;
 import kz.calories.meal.MealEntry;
 import kz.calories.meal.MealService;
+import kz.calories.meal.MealBatchService;
 import kz.calories.meal.MealType;
 import kz.calories.meal.SummaryFormatter;
 import kz.calories.user.AppUser;
@@ -49,18 +50,20 @@ public class AgentTools {
     private final DishMatcher matcher;
     private final ActivityService activity;
     private final MealService meals;
+    private final MealBatchService batches;
     private final UserService users;
     private final NutritionValidator validator;
     private final AppProperties props;
 
     public AgentTools(AppUser user, AgentContext ctx, DishService dishes, DishMatcher matcher, ActivityService activity,
-                      MealService meals, UserService users, NutritionValidator validator, AppProperties props) {
+                      MealService meals, MealBatchService batches, UserService users, NutritionValidator validator, AppProperties props) {
         this.matcher = matcher;
         this.activity = activity;
         this.user = user;
         this.ctx = ctx;
         this.dishes = dishes;
         this.meals = meals;
+        this.batches = batches;
         this.users = users;
         this.validator = validator;
         this.props = props;
@@ -161,7 +164,7 @@ public class AgentTools {
             long draftId = dishes.createDraft(user.id(), payload);
             ctx.markWrote();
             ctx.cards().add(AgentContext.DraftCard.dish(draftId, DishFormat.card(payload)));
-            return "Черновик #" + draftId + " создан; пользователю будет показана карточка с кнопками «Сохранить»/«Отмена». "
+            return "Черновик #" + draftId + " создан; пользователю будет показана карточка с кнопкой «Сохранить». "
                     + "Цифры не повторяй, коротко попроси подтвердить кнопкой или прислать правку текстом."
                     + (gate.low() ? " Валидация не прошла полностью: уверенность помечена как низкая, предложи поправить вручную." : "");
         });
@@ -178,6 +181,35 @@ public class AgentTools {
             Optional<DishVersion> now = dishes.latestActive(v.get().name());
             return "Версия #" + dishVersionId + " «" + v.get().name() + "» деактивирована. "
                     + now.map(n -> "Теперь актуальна: " + DishFormat.line(n)).orElse("Других активных версий этого блюда нет.");
+        });
+    }
+
+    @Tool(name = "cancel_draft", value = "Отменяет СВОЙ ожидающий черновик. kind: DISH_DRAFT или MEAL_DRAFT, id из выбранного сообщения.")
+    public String cancelDraft(@P("DISH_DRAFT или MEAL_DRAFT") String kind, @P("id черновика") long draftId) {
+        return run(() -> {
+            boolean changed = switch (kind) {
+                case "DISH_DRAFT" -> dishes.cancelDraft(draftId, user.id());
+                case "MEAL_DRAFT" -> batches.cancel(user, draftId);
+                default -> throw new IllegalArgumentException("Нужен DISH_DRAFT или MEAL_DRAFT");
+            };
+            if (changed) {
+                ctx.markWrote();
+            }
+            return changed ? "Черновик отменён." : "Ожидающий черновик у пользователя не найден.";
+        });
+    }
+
+    @Tool(name = "replace_meal_draft", value = "Заменяет СВОЙ ожидающий MEAL_DRAFT исправленным полным списком еды. "
+            + "Укажи все позиции, включая неизменённые, в формате «хлеб 30, молоко 100» (вес в граммах). "
+            + "Дата исходного черновика сохраняется. Новый список пользователь подтверждает кнопкой.")
+    public String replaceMealDraft(@P("id черновика MEAL_DRAFT") long draftId, @P("полный исправленный список") String text) {
+        return run(() -> {
+            AgentReply reply = batches.replaceDraft(user, draftId, text);
+            if (!reply.cards().isEmpty()) {
+                ctx.cards().addAll(reply.cards());
+                ctx.markWrote();
+            }
+            return reply.text();
         });
     }
 
@@ -206,6 +238,7 @@ public class AgentTools {
             MealEntry e = meals.logMeal(user, v.get(), grams, parseTime(eatenAt), type == null ? MealType.OTHER : type);
             ctx.markDayChanged();
             ctx.added(e.nutrition());
+            ctx.reference(RecordRef.Kind.MEAL, e.id());
             return "Записано: " + describe(e);
         });
     }
@@ -246,6 +279,7 @@ public class AgentTools {
                     withWarnings(assumptions, gate, vr), type == null ? MealType.OTHER : type);
             ctx.markDayChanged();
             ctx.added(e.nutrition());
+            ctx.reference(RecordRef.Kind.MEAL, e.id());
             return "Записано по оценке: " + describe(e);
         });
     }
@@ -290,6 +324,7 @@ public class AgentTools {
                 return "Не удалось обновить запись.";
             }
             ctx.markDayChanged();
+            ctx.reference(RecordRef.Kind.MEAL, old.id());
             return "Обновлено: " + describe(meals.find(user, old.id()).orElseThrow());
         });
     }
@@ -370,6 +405,7 @@ public class AgentTools {
                     assumptions == null || assumptions.isBlank() ? null : assumptions.trim());
             ctx.markWrote();
             ctx.showBalance(day);
+            ctx.reference(RecordRef.Kind.ACTIVITY, e.id());
             return String.format(Locale.ROOT, "Записано: id=%d «%s», %s мин, %s ккал%s. Блок «Расход и баланс» бот добавит сам, цифры не пересказывай.",
                     e.id(), e.name(), SummaryFormatter.num(e.minutes()), SummaryFormatter.num(e.kcal()),
                     e.met() == null ? "" : " (MET " + SummaryFormatter.num(e.met()) + ")");
