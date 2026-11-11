@@ -78,7 +78,11 @@ public class DishRepository {
     public List<Scored> searchTrgm(String normalizedQuery, double threshold, int limit) {
         return jdbc.sql("""
                 select * from (
-                    select l.*, greatest(similarity(normalized_name, :q), word_similarity(:q, normalized_name)) as score
+                    select l.*, greatest(
+                        similarity(normalized_name, :q),
+                        coalesce((select avg(word_similarity(w, l.normalized_name))
+                                  from unnest(string_to_array(cast(:q as text), ' ')) w
+                                  where w <> ''), 0)) as score
                     from (""" + LATEST + """
                     ) l) s
                 where score >= :t order by score desc limit :lim""")

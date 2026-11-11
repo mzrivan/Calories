@@ -45,11 +45,23 @@ public class DishMatcher {
             return new Match(Type.UNKNOWN, null, 0, List.of());
         }
         DishRepository.Scored best = found.get(0);
+        if (sameWords(norm, best.version().normalizedName())) {
+            return Match.exact(best.version());
+        }
         double second = found.size() > 1 ? found.get(1).score() : 0;
+        if (best.score() >= cfg.typoThreshold() && best.score() - second >= cfg.approxGap()) {
+            return Match.exact(best.version());
+        }
         if (best.score() >= cfg.approxThreshold() && best.score() - second >= cfg.approxGap()) {
             return new Match(Type.APPROX, best.version(), best.score(), found);
         }
         return new Match(Type.UNKNOWN, null, best.score(), found);
+    }
+
+    /** Одинаковый набор слов независимо от порядка. */
+    private static boolean sameWords(String a, String b) {
+        return new java.util.HashSet<>(java.util.Arrays.asList(a.split("\\s+")))
+                .equals(new java.util.HashSet<>(java.util.Arrays.asList(b.split("\\s+"))));
     }
 
     /** Кандидаты для инструмента агента: точное/алиас + trgm, лучшие первыми. */

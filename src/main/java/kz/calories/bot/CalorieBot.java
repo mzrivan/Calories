@@ -120,7 +120,7 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
     public void consume(Update update) {
         if (update.hasCallbackQuery()) {
             CallbackQuery cb = update.getCallbackQuery();
-            enqueue(fastChains, cb.getFrom().getId(), () -> onCallback(cb));
+            enqueue(fastChains, cb.getFrom().getId(), cb.getFrom().getId(), () -> onCallback(cb));
             return;
         }
         if (!(update.hasMessage() && update.getMessage().hasText() && update.getMessage().getFrom() != null)) {
@@ -144,9 +144,9 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
         }
         Optional<MessageActions.Selection> taken = selection;
         if (fast) {
-            enqueue(fastChains, uid, () -> handle(m, taken));
+            enqueue(fastChains, uid, m.getChatId(), () -> handle(m, taken));
         } else {
-            enqueue(slowChains, uid, () -> {
+            enqueue(slowChains, uid, m.getChatId(), () -> {
                 typing(m.getChatId());
                 handle(m, taken);
             });
@@ -154,15 +154,27 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
     }
 
     /** Ставит задачу в очередь человека: задачи одной очереди идут строго по порядку, ошибка не рвёт цепочку. */
-    private void enqueue(Map<Long, CompletableFuture<Void>> chains, long uid, Task task) {
+    private void enqueue(Map<Long, CompletableFuture<Void>> chains, long uid, long chatId, Task task) {
         chains.compute(uid, (k, prev) -> (prev == null ? CompletableFuture.<Void>completedFuture(null) : prev)
                 .thenRunAsync(() -> {
                     try {
                         task.run();
                     } catch (Exception e) {
                         log.error("Ошибка обработки обновления", e);
+                        notifyFailure(chatId);
                     }
                 }, executor));
+    }
+
+    /** Best-effort: сообщаем пользователю, что обработка упала, чтобы он не ждал ответа. */
+    private void notifyFailure(long chatId) {
+        try {
+            send(SendMessage.builder().chatId(chatId)
+                    .text("Не удалось обработать сообщение или отправить ответ. Проверьте /today — часть действий могла записаться.")
+                    .build());
+        } catch (Exception e) {
+            log.warn("Не удалось сообщить об ошибке: {}", e.toString());
+        }
     }
 
     private Optional<MessageActions.Selection> takeSelection(Message m) {
@@ -280,7 +292,7 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
                 msg.replyMarkup(menu());
             }
             Message sent = send(msg.build());
-            actions.remember(from.getId(), from.getFirstName(), m.getChatId(), sent.getMessageId(), chunks.get(i), r.records());
+            remember(from, m.getChatId(), sent.getMessageId(), chunks.get(i), r.records());
         }
         for (AgentContext.DraftCard card : r.cards()) {
             InlineKeyboardMarkup kb = InlineKeyboardMarkup.builder()
@@ -290,8 +302,17 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
                     .build();
             Message sent = send(SendMessage.builder().chatId(m.getChatId()).text(card.text()).replyMarkup(kb).build());
             RecordRef.Kind kind = card.confirmPrefix().equals("save") ? RecordRef.Kind.DISH_DRAFT : RecordRef.Kind.MEAL_DRAFT;
-            actions.remember(from.getId(), from.getFirstName(), m.getChatId(), sent.getMessageId(), card.text(),
-                    List.of(new RecordRef(kind, card.draftId())));
+            remember(from, m.getChatId(), sent.getMessageId(), card.text(), List.of(new RecordRef(kind, card.draftId())));
+        }
+    }
+
+    /** Ошибка запоминания отправленного сообщения не должна обрывать отправку остальных частей и карточек. */
+    private void remember(org.telegram.telegrambots.meta.api.objects.User from, long chatId, int messageId, String text,
+                          List<RecordRef> records) {
+        try {
+            actions.remember(from.getId(), from.getFirstName(), chatId, messageId, text, records);
+        } catch (RuntimeException e) {
+            log.error("Не удалось запомнить отправленное сообщение {}", messageId, e);
         }
     }
 

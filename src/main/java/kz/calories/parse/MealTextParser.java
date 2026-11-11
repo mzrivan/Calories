@@ -33,6 +33,10 @@ public final class MealTextParser {
     private static final Pattern ACTIVITY = Pattern.compile(
             "\\d\\s*(?:мин\\p{L}*|час\\p{L}*|ч)(?![\\p{L}])|тренировк\\p{L}*|активност\\p{L}*|\\bкардио\\b|\\bбегал\\p{L}*|\\bпробежк\\p{L}*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    /** Глаголы управления (удалить/исправить/показать…) — это команда, а не еда: «удали хлеб 30» разбирает LLM-агент. */
+    private static final Pattern COMMAND = Pattern.compile(
+            "(?<![\\p{L}])(?:удал|убер|убра|сотри|отмен|измен|исправ|поправ|замен|поменя|переимен|покаж|сколько|верни|деактив)\\p{L}*",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern NUM =Pattern.compile("\\d+(?:[.,]\\d+)?");
     private static final Pattern PCT = Pattern.compile("\\d+(?:[.,]\\d+)?%");
 
@@ -68,6 +72,9 @@ public final class MealTextParser {
         }
         if (ACTIVITY.matcher(t).find()) {
             return ParsedMessage.fail("активность/время — нужен разбор LLM");
+        }
+        if (COMMAND.matcher(t).find()) {
+            return ParsedMessage.fail("команда (удалить/исправить/показать) — нужен разбор LLM");
         }
         t = FAT.matcher(t).replaceAll("$1%");
         t = GLUE.matcher(t).replaceAll(" ");

@@ -55,6 +55,7 @@ app:
     max-cooked-ratio: 3.0
   search:
     trgm-threshold: 0.3
+    typo-threshold: 0.8
     approx-threshold: 0.5
     approx-gap: 0.1
     top-k: 5

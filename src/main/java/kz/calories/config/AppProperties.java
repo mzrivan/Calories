@@ -25,7 +25,7 @@ public record AppProperties(
                              double atwaterTolerance, double atwaterMinAbsKcal, double maxGrams,
                              double maxCookedWeightG, double minCookedRatio, double maxCookedRatio) {}
 
-    public record Search(double trgmThreshold, double approxThreshold, double approxGap, int topK) {}
+    public record Search(double trgmThreshold, double typoThreshold, double approxThreshold, double approxGap, int topK) {}
 
     public record Energy(double tefProtein, double tefCarbs, double tefFat,
                          double stepLengthFactor, double walkKcalPerKgKm) {}
