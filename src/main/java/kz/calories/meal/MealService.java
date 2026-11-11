@@ -77,6 +77,11 @@ public class MealService {
         return repo.totals(user.id(), start(day, user.zone()), start(day.plusDays(1), user.zone()));
     }
 
+    /** Итоги по дням за [from, to] включительно; только дни, где есть записи еды. */
+    public java.util.Map<LocalDate, DayTotals> dailyTotals(AppUser user, LocalDate from, LocalDate to) {
+        return repo.dailyTotals(user.id(), start(from, user.zone()), start(to.plusDays(1), user.zone()), user.zone());
+    }
+
     public LocalDate today(AppUser user) {
         return LocalDate.now(user.zone());
     }

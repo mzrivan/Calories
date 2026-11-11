@@ -77,6 +77,14 @@ public class ActivityService {
                 activities, round(spent), List.of());
     }
 
+    public Optional<ActivityRepository.Row> latestWeightRow(AppUser user, LocalDate day) {
+        return repo.latestWeightRow(user.id(), day);
+    }
+
+    public Optional<ActivityRepository.Row> firstWeightRow(AppUser user, LocalDate day) {
+        return repo.firstWeightRow(user.id(), day);
+    }
+
     /** Текущий вес на день (последний известный) — для расчётов и подсказки LLM. */
     public Optional<Double> currentWeight(LocalDate day, long userId) {
         return repo.latestWeight(userId, day);

@@ -95,6 +95,12 @@ class MealTextParserTest {
     }
 
     @Test
+    void multilineBreakfastWithFractionalGrams() {
+        assertThat(show("Завтрак \n\nГречка 120\nДрожжи 3.5\nЯйцо вареное 50\nХлеб картофельный 29\nРикотта 30\nКижуч 60"))
+                .isEqualTo("гречка=120; дрожжи=3.5; яйцо вареное=50; хлеб картофельный=29; рикотта=30; кижуч=60");
+    }
+
+    @Test
     void ambiguousOrIncompleteGoToLlm() {
         // две позиции слиплись, жирность и вес неразличимы
         assertThat(show("83 творог 0.1 йогурт 40 1.5")).isEqualTo("LLM");

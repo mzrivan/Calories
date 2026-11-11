@@ -31,6 +31,20 @@ public class ActivityRepository {
                 .param("u", userId).param("d", day).query(Double.class).optional();
     }
 
+    /** Последнее взвешивание на день или раньше (с датой). */
+    public Optional<Row> latestWeightRow(long userId, LocalDate day) {
+        return jdbc.sql("select day, weight_kg, steps from daily_activity where user_id = :u and day <= :d "
+                        + "and weight_kg is not null order by day desc limit 1")
+                .param("u", userId).param("d", day).query(this::map).optional();
+    }
+
+    /** Первое взвешивание на день или позже (с датой). */
+    public Optional<Row> firstWeightRow(long userId, LocalDate day) {
+        return jdbc.sql("select day, weight_kg, steps from daily_activity where user_id = :u and day >= :d "
+                        + "and weight_kg is not null order by day limit 1")
+                .param("u", userId).param("d", day).query(this::map).optional();
+    }
+
     /** Частичный upsert: переданные вес/шаги заменяют прежние, остальные остаются; расчётные значения перезаписываются. */
     public void upsert(long userId, LocalDate day, Double weightKg, Integer steps, Double bmr, Double stepsKcal, Double total) {
         jdbc.sql("""

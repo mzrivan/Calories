@@ -246,4 +246,27 @@ class BatchAndActivityIT extends IntegrationTestBase {
         assertThat(say(tg, "баланс").text()).contains("Расход:").contains("Баланс");
         assertThat(say(tg, "/today").text()).contains("Итого за сегодня");
     }
+
+    @Test
+    void statsCommands() {
+        long tg = 1003;
+        say(tg, "рост 178, возраст 35, пол м");
+        say(tg, "вес 82,5");
+        // нет записей еды за прошлые дни — запросы работают, ответ короткий
+        assertThat(say(tg, "/week").text()).contains("Неделя").contains("Нет записей еды");
+        assertThat(say(tg, "/month").text()).contains("Месяц").contains("Нет записей еды");
+        assertThat(say(tg, "/alltime").text()).contains("Всё время");
+
+        // еда за вчера и позавчера напрямую в БД
+        long uid = jdbc.sql("select id from app_user where telegram_id = :t").param("t", tg).query(Long.class).single();
+        for (int back = 1; back <= 2; back++) {
+            jdbc.sql("""
+                    insert into meal_entry (user_id, eaten_at, name, grams, kcal, protein_g, fat_g, carbs_g, fiber_g, meal_type)
+                    values (:u, now() - make_interval(days => :b), 'тест', 100, 2000, 100, 60, 200, 20, 'OTHER')""")
+                    .param("u", uid).param("b", back).update();
+        }
+        String week = say(tg, "/week").text();
+        assertThat(week).contains("Съедено: 2000 ккал").contains("Расход:").contains("Баланс:").contains("клетчатка 20 г");
+        assertThat(say(tg, "/alltime").text()).contains("Съедено: 2000 ккал");
+    }
 }

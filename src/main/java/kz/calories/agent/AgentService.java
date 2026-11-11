@@ -89,6 +89,10 @@ public class AgentService {
                     : "Сейчас не получается обработать сообщение (сервис ИИ перегружен или недоступен). Ваше сообщение сохранено, повторите чуть позже.");
         } else {
             reply.append(answer == null || answer.isBlank() ? "Готово." : answer.trim());
+            if (!ctx.wrote() && !ctx.dayChanged() && answer != null
+                    && answer.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(добавил|записал|внёс|внес|✅).*")) {
+                reply.append("\n\n⚠️ По журналу действий ничего не записано — проверьте дневник и повторите ввод (лучше короткими частями).");
+            }
         }
         if (ctx.addedNutrition().size() > 1) {
             kz.calories.validation.Nutrition sum = kz.calories.validation.Nutrition.ZERO;

@@ -35,7 +35,7 @@ app:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-2.5-flash}
     temperature: 0.2
-    max-tool-calls: 6
+    max-tool-calls: 10
     retries: ${LLM_RETRIES:5}
     retry-initial-delay-ms: ${LLM_RETRY_DELAY_MS:2000}
   agent:

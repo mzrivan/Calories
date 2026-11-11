@@ -37,6 +37,9 @@ public final class MealTextParser {
     private static final Pattern COMMAND = Pattern.compile(
             "(?<![\\p{L}])(?:удал|убер|убра|сотри|отмен|измен|исправ|поправ|замен|поменя|переимен|покаж|сколько|верни|деактив)\\p{L}*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    /** Продукты, у которых дробное число рядом с названием обычно жирность («молоко 2.5»), а не вес. */
+    private static final Pattern FAT_PRODUCT = Pattern.compile(
+            "молок|кефир|йогурт|сливк|творог|сметан|ряженк|простокваш|сыр|масл", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern NUM =Pattern.compile("\\d+(?:[.,]\\d+)?");
     private static final Pattern PCT = Pattern.compile("\\d+(?:[.,]\\d+)?%");
 
@@ -170,7 +173,7 @@ public final class MealTextParser {
         if (!validName(name)) {
             return "не удалось выделить название";
         }
-        if (grams < 1 || (grams < 10 && grams != Math.rint(grams))) {
+        if (grams < 1 || (grams < 10 && grams != Math.rint(grams) && FAT_PRODUCT.matcher(name).find())) {
             return "неясное число (вес или жирность?)";
         }
         out.add(ParsedItem.ofGrams(name, grams));

@@ -93,6 +93,27 @@ public class MealRepository {
                 }).single();
     }
 
+    /** Итоги по дням (в часовом поясе пользователя) за [from, to); только дни с записями. */
+    public java.util.Map<java.time.LocalDate, DayTotals> dailyTotals(long userId, OffsetDateTime from, OffsetDateTime to,
+                                                                    java.time.ZoneId zone) {
+        java.util.Map<java.time.LocalDate, DayTotals> out = new java.util.TreeMap<>();
+        jdbc.sql("""
+                select (eaten_at at time zone :z)::date d, sum(kcal) kcal, sum(protein_g) p, sum(fat_g) f,
+                       sum(carbs_g) c, sum(fiber_g) fi, count(*) cnt
+                from meal_entry where user_id = :u and active and eaten_at >= :f and eaten_at < :t
+                group by d""")
+                .param("z", zone.getId()).param("u", userId).param("f", from).param("t", to)
+                .query((rs, i) -> {
+                    double fi = rs.getDouble("fi");
+                    Double fiber = rs.wasNull() ? null : fi;
+                    out.put(rs.getObject("d", java.time.LocalDate.class),
+                            new DayTotals(new Nutrition(rs.getDouble("kcal"), rs.getDouble("p"), rs.getDouble("f"),
+                                    rs.getDouble("c"), fiber), rs.getInt("cnt")));
+                    return 0;
+                }).list();
+        return out;
+    }
+
     private MealEntry map(ResultSet rs, int row) throws SQLException {
         double fi = rs.getDouble("fiber_g");
         Double fiber = rs.wasNull() ? null : fi;

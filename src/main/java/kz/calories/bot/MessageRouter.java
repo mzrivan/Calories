@@ -33,6 +33,8 @@ import kz.calories.validation.ValidationResult;
 import kz.calories.agent.AgentContext;
 import kz.calories.dish.DraftPayload;
 import kz.calories.parse.ProductLineParser;
+import kz.calories.stats.StatsFormatter;
+import kz.calories.stats.StatsService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -63,6 +65,9 @@ public class MessageRouter {
             • «вес 82,5», «шагов 9500» (можно «вчера шагов 8000»; данные за день можно обновлять)
             • «баланс» — съедено минус потрачено
 
+            Статистика (средние за день, расход, дефицит, динамика веса; сегодня не учитывается):
+            • /week — 7 дней, /month — 30 дней, /alltime — всё время
+
             Удаление (запись лишь помечается неактивной и больше не учитывается):
             • перешлите мне моё сообщение и напишите «удали», «отмени» или правку («измени вес на 200 г»)
             • также можно ответить на моё сообщение командой или правкой
@@ -83,10 +88,12 @@ public class MessageRouter {
     private final ActivityService activity;
     private final ChatRepository chat;
     private final NutritionValidator validator;
+    private final StatsService stats;
 
     public MessageRouter(UserService users, AgentService agent, DishService dishes, MealService meals,
                          MealBatchService batches, ActivityService activity, ChatRepository chat,
-                         NutritionValidator validator) {
+                         NutritionValidator validator, StatsService stats) {
+        this.stats = stats;
         this.users = users;
         this.agent = agent;
         this.dishes = dishes;
@@ -126,6 +133,12 @@ public class MessageRouter {
                     return Optional.of(AgentReply.text(logged(user, t, deleteDish(user, arg))));
                 case "/balance":
                     return Optional.of(AgentReply.text(BalanceFormatter.block(activity.balance(user, meals.today(user)))));
+                case "/week":
+                    return Optional.of(AgentReply.text(StatsFormatter.format(stats.stats(user, StatsService.Period.WEEK))));
+                case "/month":
+                    return Optional.of(AgentReply.text(StatsFormatter.format(stats.stats(user, StatsService.Period.MONTH))));
+                case "/alltime":
+                    return Optional.of(AgentReply.text(StatsFormatter.format(stats.stats(user, StatsService.Period.ALL))));
                 case "/dishes":
                     return Optional.of(AgentReply.text(dishesText(arg)));
                 case "/weight":
