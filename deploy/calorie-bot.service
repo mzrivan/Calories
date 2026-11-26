@@ -7,7 +7,7 @@ Wants=network-online.target
 User=caloriebot
 WorkingDirectory=/opt/calorie-bot
 EnvironmentFile=/etc/calorie-bot/calorie-bot.env
-ExecStart=/usr/bin/java -Xmx384m -jar /opt/calorie-bot/calorie-bot.jar
+ExecStart=/usr/bin/java -Xmx384m -Djava.net.preferIPv4Stack=true -Dnetworkaddress.cache.ttl=30 -jar /opt/calorie-bot/calorie-bot.jar
 Restart=always
 RestartSec=10
 SuccessExitStatus=143

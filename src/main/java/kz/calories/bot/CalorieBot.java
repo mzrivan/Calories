@@ -77,8 +77,28 @@ public class CalorieBot implements SpringLongPollingBot, LongPollingSingleThread
 
     @Autowired
     public CalorieBot(AppProperties props, MessageRouter router, MessageActions actions) {
-        this(requireToken(props.telegram().token()), new OkHttpTelegramClient(requireToken(props.telegram().token())), router, actions);
+        this(requireToken(props.telegram().token()), new OkHttpTelegramClient(httpClient(), requireToken(props.telegram().token())), router, actions);
         executor.submit(this::registerCommands);
+    }
+
+    /**
+     * HTTP-клиент для отправки: IPv4 в приоритете (на серверах без рабочего IPv6 AAAA-записи api.telegram.org
+     * дают зависшие подключения), короткий connect-таймаут, чтобы быстрее переходить к следующему адресу,
+     * и короткий idle у пула, чтобы не ловить обрывы на «протухших» keep-alive соединениях.
+     */
+    private static okhttp3.OkHttpClient httpClient() {
+        return new okhttp3.OkHttpClient.Builder()
+                .dns(hostname -> {
+                    List<java.net.InetAddress> all = new java.util.ArrayList<>(okhttp3.Dns.SYSTEM.lookup(hostname));
+                    all.sort(java.util.Comparator.comparing(a -> a instanceof java.net.Inet6Address));
+                    return all;
+                })
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .readTimeout(java.time.Duration.ofSeconds(60))
+                .writeTimeout(java.time.Duration.ofSeconds(30))
+                .connectionPool(new okhttp3.ConnectionPool(2, 30, java.util.concurrent.TimeUnit.SECONDS))
+                .retryOnConnectionFailure(true)
+                .build();
     }
 
     CalorieBot(String token, TelegramClient client, MessageRouter router, MessageActions actions) {

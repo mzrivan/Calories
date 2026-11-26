@@ -12,4 +12,4 @@ RUN useradd -r -u 1001 app
 COPY --from=build /src/build/libs/*.jar /app/app.jar
 USER app
 EXPOSE 8080
-ENTRYPOINT ["java", "-Xmx384m", "-jar", "/app/app.jar"]
+ENTRYPOINT ["java", "-Xmx384m", "-Djava.net.preferIPv4Stack=true", "-Dnetworkaddress.cache.ttl=30", "-jar", "/app/app.jar"]
