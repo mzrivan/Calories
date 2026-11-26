@@ -67,15 +67,14 @@ public class AgentService {
         int attempts = Math.max(1, props.llm().retries());
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                answer = llm.chat(SystemPrompt.build(user, promptParams(user)), history, text, tools, props.llm().maxToolCalls()).text();
+                ctx.beginAttempt();
+                answer =llm.chat(SystemPrompt.build(user, promptParams(user)), history, text, tools, props.llm().maxToolCalls()).text();
                 failed = false;
                 break;
             } catch (RuntimeException e) {
                 failed = true;
                 log.warn("Ошибка LLM (попытка {}/{}): {}", attempt, attempts, e.toString());
-                if (ctx.wrote()) {
-                    break; // уже были записи: повтор мог бы продублировать их
-                }
+                // повтор безопасен: идентичные записи прошлых попыток AgentTools пропускает (ctx.replay)
                 if (attempt < attempts) {
                     sleepBackoff(attempt);
                 }
@@ -141,7 +140,7 @@ public class AgentService {
     }
 
     private void sleepBackoff(int attempt) {
-        long base = props.llm().retryInitialDelayMs() * (1L << (attempt - 1));
+        long base = Math.min(20_000L, props.llm().retryInitialDelayMs() * (1L << Math.min(attempt - 1, 10)));
         long jitter = ThreadLocalRandom.current().nextLong(base / 2 + 1);
         try {
             Thread.sleep(base + jitter);

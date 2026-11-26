@@ -295,7 +295,7 @@ public class MealBatchService {
                 last = e;
                 log.warn("Ошибка оценки LLM (попытка {}/{}): {}", attempt, attempts, e.toString());
                 if (attempt < attempts) {
-                    long base = props.llm().retryInitialDelayMs() * (1L << (attempt - 1));
+                    long base = Math.min(20_000L, props.llm().retryInitialDelayMs() * (1L << Math.min(attempt - 1, 10)));
                     try {
                         Thread.sleep(base + ThreadLocalRandom.current().nextLong(base / 2 + 1));
                     } catch (InterruptedException ie) {

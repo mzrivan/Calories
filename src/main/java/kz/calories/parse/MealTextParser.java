@@ -14,10 +14,19 @@ import kz.calories.meal.MealType;
  */
 public final class MealTextParser {
 
-    /** mealType — приём пищи из ключевых слов («на обед», «завтрак:»); OTHER, если слов нет. */
-    public record ParsedMessage(boolean ok, List<ParsedItem> items, String reason, MealType mealType) {
+    /**
+     * mealType — приём пищи из ключевых слов («на обед», «завтрак:»); OTHER, если слов нет.
+     * ok — разобрано ВСЁ сообщение. Если часть позиций разобрать не удалось, но другая часть понятна,
+     * ok=false, items — понятные позиции, unparsed — фрагменты для LLM (см. {@link #partial()}).
+     */
+    public record ParsedMessage(boolean ok, List<ParsedItem> items, String reason, MealType mealType, List<String> unparsed) {
         static ParsedMessage fail(String reason) {
-            return new ParsedMessage(false, List.of(), reason, MealType.OTHER);
+            return new ParsedMessage(false, List.of(), reason, MealType.OTHER, List.of());
+        }
+
+        /** Часть сообщения понятна парсеру (items), остальное (unparsed) должна разобрать LLM. */
+        public boolean partial() {
+            return !ok && !items.isEmpty() && !unparsed.isEmpty();
         }
     }
 
@@ -70,11 +79,9 @@ public final class MealTextParser {
         if (t.length() > MAX_LEN) {
             return ParsedMessage.fail("слишком длинное");
         }
-        if (t.contains("(") || t.contains(")") || t.contains(":") || t.contains("?") || t.contains("/")) {
-            return ParsedMessage.fail("скобки/двоеточие/вопрос — нужен разбор LLM");
-        }
-        if (ACTIVITY.matcher(t).find()) {
-            return ParsedMessage.fail("активность/время — нужен разбор LLM");
+        // скобки и вопрос меняют смысл всего сообщения (и могут содержать запятые) — целиком к LLM
+        if (t.contains("(") || t.contains(")") || t.contains("?") || t.contains("/")) {
+            return ParsedMessage.fail("скобки/вопрос — нужен разбор LLM");
         }
         if (COMMAND.matcher(t).find()) {
             return ParsedMessage.fail("команда (удалить/исправить/показать) — нужен разбор LLM");
@@ -82,22 +89,46 @@ public final class MealTextParser {
         t = FAT.matcher(t).replaceAll("$1%");
         t = GLUE.matcher(t).replaceAll(" ");
         List<ParsedItem> items = new ArrayList<>();
+        List<String> unparsed = new ArrayList<>();
+        String firstError = null;
         for (String seg : SEGMENTS.split(t)) {
             if (seg.isBlank()) {
                 continue;
             }
-            String err = parseSegment(seg.trim(), items);
+            String err = parseSegmentSafely(seg.trim(), items);
             if (err != null) {
-                return ParsedMessage.fail(err + ": «" + seg.trim() + "»");
+                unparsed.add(seg.trim());
+                if (firstError == null) {
+                    firstError = err + ": «" + seg.trim() + "»";
+                }
             }
         }
         if (items.isEmpty()) {
-            return ParsedMessage.fail("нет позиций");
+            return ParsedMessage.fail(firstError != null ? firstError : "нет позиций");
         }
         if (items.size() > MAX_ITEMS) {
             return ParsedMessage.fail("слишком много позиций");
         }
-        return new ParsedMessage(true, items, null, meal.type());
+        if (!unparsed.isEmpty()) {
+            return new ParsedMessage(false, items, firstError, meal.type(), unparsed);
+        }
+        return new ParsedMessage(true, items, null, meal.type(), List.of());
+    }
+
+    /** Разбор одного сегмента: позиции добавляются в out только если сегмент разобран целиком. */
+    private static String parseSegmentSafely(String seg, List<ParsedItem> out) {
+        if (seg.contains(":")) {
+            return "двоеточие";
+        }
+        if (ACTIVITY.matcher(seg).find()) {
+            return "активность/время";
+        }
+        List<ParsedItem> local = new ArrayList<>();
+        String err = parseSegment(seg, local);
+        if (err == null) {
+            out.addAll(local);
+        }
+        return err;
     }
 
     /** null = успех (позиции добавлены), иначе причина отказа. */

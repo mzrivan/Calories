@@ -62,7 +62,7 @@ public class GeminiLlm implements AgentLlm {
     @Override
     public LlmResult chat(String systemPrompt, List<ChatTurn> history, String userMessage, Object tools, int maxToolCalls) {
         long start = System.currentTimeMillis();
-        MessageWindowChatMemory memory = MessageWindowChatMemory.withMaxMessages(history.size() + 40);
+        MessageWindowChatMemory memory = MessageWindowChatMemory.withMaxMessages(history.size() + 2 * maxToolCalls + 20);
         for (ChatTurn t : history) {
             memory.add(t.fromUser() ? UserMessage.from(t.content()) : AiMessage.from(t.content()));
         }

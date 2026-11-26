@@ -94,6 +94,59 @@ class MealTextParserTest {
         assertThat(show("кардио 40мин")).isEqualTo("LLM");
     }
 
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            | OTHER
+            Завтрак | BREAKFAST
+            Обед: | LUNCH
+            Ужин | DINNER
+            На обед | LUNCH
+            Второй завтрак | BREAKFAST
+            Перекус | OTHER
+            Полдник: | OTHER
+            """)
+    void oneItemPerLineWithOptionalMealHeader(String header, String type) {
+        String body = "Лаваш 60\nКуриная грудка сувид 120\nМорковка по корейски 60\nСоус тонато 50\n"
+                + "Огурцы маринованные 18\nЛук красный 15\nПерец болгарский 25";
+        String text = header == null ? body : header.trim() + "\n" + body;
+        MealTextParser.ParsedMessage m = MealTextParser.parse(text);
+        assertThat(m.ok()).isTrue();
+        assertThat(m.mealType().name()).isEqualTo(type.trim());
+        assertThat(show(text)).isEqualTo("лаваш=60; куриная грудка сувид=120; морковка по корейски=60; соус тонато=50; "
+                + "огурцы маринованные=18; лук красный=15; перец болгарский=25");
+    }
+
+    @Test
+    void mealKeywordAtLineEndKeepsLineBreakAsSeparator() {
+        assertThat(show("Лаваш 60 на обед\nЛук 15")).isEqualTo("лаваш=60; лук=15");
+    }
+
+    @Test
+    void partiallyUnderstoodListSplitsKnownFromUnknown() {
+        MealTextParser.ParsedMessage m = MealTextParser.parse(
+                "Вафля сырная 40, кетчуп домашний помидоры перцы без сахара, сосиска домашняя куриная 55");
+        assertThat(m.ok()).isFalse();
+        assertThat(m.partial()).isTrue();
+        assertThat(m.items().stream().map(i -> i.name().toLowerCase(Locale.ROOT) + "=" + trim(i.grams()))
+                .collect(Collectors.joining("; "))).isEqualTo("вафля сырная=40; сосиска домашняя куриная=55");
+        assertThat(m.unparsed()).containsExactly("кетчуп домашний помидоры перцы без сахара");
+    }
+
+    @Test
+    void activitySegmentGoesToLlmWhileFoodIsParsed() {
+        MealTextParser.ParsedMessage m = MealTextParser.parse("Хлеб 30, силовая тренировка 50 минут, молоко 100");
+        assertThat(m.partial()).isTrue();
+        assertThat(m.items()).hasSize(2);
+        assertThat(m.unparsed()).containsExactly("силовая тренировка 50 минут");
+    }
+
+    @Test
+    void fullyParsedOrFullyUnknownIsNotPartial() {
+        assertThat(MealTextParser.parse("Хлеб 30, молоко 100").partial()).isFalse();
+        assertThat(MealTextParser.parse("Хлеб 30, молоко 100").ok()).isTrue();
+        assertThat(MealTextParser.parse("съел вчера много всего").partial()).isFalse();
+    }
+
     @Test
     void multilineBreakfastWithFractionalGrams() {
         assertThat(show("Завтрак \n\nГречка 120\nДрожжи 3.5\nЯйцо вареное 50\nХлеб картофельный 29\nРикотта 30\nКижуч 60"))

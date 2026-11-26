@@ -35,14 +35,14 @@ app:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-2.5-flash}
     temperature: 0.2
-    max-tool-calls: 10
-    retries: ${LLM_RETRIES:5}
+    max-tool-calls: ${LLM_MAX_TOOL_CALLS:60}
+    retries: ${LLM_RETRIES:10}
     retry-initial-delay-ms: ${LLM_RETRY_DELAY_MS:2000}
   agent:
     history-messages: 10
     history-minutes: 60
-    rate-limit-per-minute: 10
-    max-validation-retries: 2
+    rate-limit-per-minute: 30
+    max-validation-retries: 5
   validation:
     max-kcal-per-100g: 900
     max-macro-per-100g: 100

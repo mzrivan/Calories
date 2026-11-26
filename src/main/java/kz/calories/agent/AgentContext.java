@@ -82,6 +82,34 @@ public class AgentContext {
         return wrote;
     }
 
+    // --- защита от дублей при повторных попытках LLM в рамках одного хода ---
+
+    private final Map<String, List<String>> done = new HashMap<>();
+    private final Map<String, Integer> seen = new HashMap<>();
+    private Map<String, Integer> prior = new HashMap<>();
+
+    /** Начало новой попытки LLM: уже выполненные записи прошлых попыток повторно не пишутся. */
+    public void beginAttempt() {
+        prior = new HashMap<>();
+        done.forEach((k, v) -> prior.put(k, v.size()));
+        seen.clear();
+        toolCalls = 0;
+    }
+
+    /**
+     * Если такая же запись (тот же ключ, с учётом кратности) уже была выполнена в предыдущей попытке —
+     * возвращает её результат, иначе null. Одинаковые записи внутри одной попытки («яйцо 50, яйцо 50») не считаются дублями.
+     */
+    public String replay(String key) {
+        int n = seen.merge(key, 1, Integer::sum);
+        List<String> results = done.get(key);
+        return results != null && n <= prior.getOrDefault(key, 0) ? results.get(n - 1) : null;
+    }
+
+    public void remember(String key, String result) {
+        done.computeIfAbsent(key, k -> new ArrayList<>()).add(result);
+    }
+
     public int nextToolCall() {
         return ++toolCalls;
     }

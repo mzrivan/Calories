@@ -32,7 +32,7 @@ public enum MealType {
 
     /** «на обед», «обед:», «позавтракал», «за ужином» и т.п.; предлог и знак после слова съедаются вместе с ним. */
     private static final Pattern KEYWORD = Pattern.compile(
-            "(?:(?<![\\p{L}])(?:на|в|за|после|перед)\\s+)?(?<![\\p{L}])(?:по)?(завтрак|обед|ужин)\\p{L}*\\s*[:,\\-–—]?\\s*",
+            "(?:(?<![\\p{L}])(?:на|в|за|после|перед)\\s+)?(?<![\\p{L}])(?:(?:второй|ранний|поздний)\\s+)?(?:по)?(завтрак|обед|ужин|перекус|полдник)\\p{L}*\\s*[:,\\-–—]?\\s*",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     /** Находит ключевые слова приёма пищи и вырезает их из текста. Нет слов — OTHER и исходный текст. */
@@ -53,7 +53,18 @@ public enum MealType {
         if (found == null) {
             return new Extracted(OTHER, text, false);
         }
-        return new Extracted(found, KEYWORD.matcher(text).replaceAll(" ").trim(), ambiguous);
+        return new Extracted(found, stripKeywords(text), ambiguous);
+    }
+
+    /** Вырезает слова приёма пищи; если вместе со словом съеден перенос строки — оставляет его (это явный разделитель позиций). */
+    private static String stripKeywords(String text) {
+        Matcher m = KEYWORD.matcher(text);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            m.appendReplacement(sb, m.group().contains("\n") ? "\n" : " ");
+        }
+        m.appendTail(sb);
+        return sb.toString().trim();
     }
 
     /** Значение параметра инструмента: BREAKFAST/… или русское слово; пусто — null (не задано). */
@@ -81,6 +92,7 @@ public enum MealType {
         return switch (stem.toLowerCase(Locale.ROOT)) {
             case "завтрак" -> BREAKFAST;
             case "обед" -> LUNCH;
+            case "перекус", "полдник" -> OTHER;
             default -> DINNER;
         };
     }

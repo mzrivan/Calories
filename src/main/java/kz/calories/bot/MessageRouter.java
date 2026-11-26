@@ -22,6 +22,7 @@ import kz.calories.energy.BalanceFormatter;
 import kz.calories.energy.DayBalance;
 import kz.calories.meal.MealBatchService;
 import kz.calories.meal.MealService;
+import kz.calories.meal.MealType;
 import kz.calories.meal.SummaryFormatter;
 import kz.calories.parse.IntentParser;
 import kz.calories.parse.MealTextParser;
@@ -180,6 +181,9 @@ public class MessageRouter {
             return saveProductDraft(user, text, product.get());
         }
         MealTextParser.ParsedMessage pm = MealTextParser.parse(text);
+        if (pm.partial()) {
+            return processPartial(user, text, pm);
+        }
         if (!pm.ok()) {
             return agent.handle(user, text);
         }
@@ -187,6 +191,20 @@ public class MessageRouter {
         AgentReply reply = batches.process(user, pm.items(), text, pm.mealType());
         chat.save(user.id(), false, reply.text());
         return reply;
+    }
+
+    /** Понятные парсеру позиции пишет код, непонятные фрагменты уходят в LLM-агент. */
+    private AgentReply processPartial(AppUser user, String text, MealTextParser.ParsedMessage pm) {
+        chat.save(user.id(), true, text);
+        AgentReply head = batches.process(user, pm.items(), text, pm.mealType());
+        chat.save(user.id(), false, head.text());
+        String rest = String.join(", ", pm.unparsed());
+        if (pm.mealType() != MealType.OTHER) {
+            rest = pm.mealType().label() + ": " + rest;
+        }
+        String request = "Остальные позиции этого списка уже обработаны ботом, повторно не добавляй их. "
+                + "Разбери только эти: " + rest;
+        return head.and(agent.handle(user, request));
     }
 
     /** «Название К/Б/Ж/У[/кл]» → черновик продукта (на 100 г) с кнопками подтверждения; в дневник не пишет. */

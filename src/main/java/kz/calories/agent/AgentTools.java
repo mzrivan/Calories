@@ -125,7 +125,7 @@ public class AgentTools {
             @P(value = "исходное описание рецепта/продукта от пользователя", required = false) String sourceText,
             @P(value = "LOW, MEDIUM или HIGH", required = false) String confidence,
             @P(value = "допущения расчёта", required = false) String assumptions) {
-        return run(() -> {
+        return runOnce("save_dish", () -> {
             DishVersion.Kind k = parseKind(kind);
             if (name == null || name.isBlank()) {
                 return "Ошибка: название обязательно.";
@@ -167,7 +167,7 @@ public class AgentTools {
             return "Черновик #" + draftId + " создан; пользователю будет показана карточка с кнопкой «Сохранить». "
                     + "Цифры не повторяй, коротко попроси подтвердить кнопкой или прислать правку текстом."
                     + (gate.low() ? " Валидация не прошла полностью: уверенность помечена как низкая, предложи поправить вручную." : "");
-        });
+        }, name, kind, kcal, proteinG, fatG, carbsG, fiberG, cookedWeightG);
     }
 
     @Tool(name = "deactivate_dish", value = "Мягко деактивирует версию блюда по id версии (физически не удаляет). Актуальной становится предыдущая активная версия.")
@@ -203,14 +203,14 @@ public class AgentTools {
             + "Укажи все позиции, включая неизменённые, в формате «хлеб 30, молоко 100» (вес в граммах). "
             + "Дата исходного черновика сохраняется. Новый список пользователь подтверждает кнопкой.")
     public String replaceMealDraft(@P("id черновика MEAL_DRAFT") long draftId, @P("полный исправленный список") String text) {
-        return run(() -> {
+        return runOnce("replace_meal_draft", () -> {
             AgentReply reply = batches.replaceDraft(user, draftId, text);
             if (!reply.cards().isEmpty()) {
                 ctx.cards().addAll(reply.cards());
                 ctx.markWrote();
             }
             return reply.text();
-        });
+        }, draftId, text);
     }
 
     // ------------------------------------------------------------------ дневник
@@ -222,7 +222,7 @@ public class AgentTools {
             @P("вес порции, г") Double grams,
             @P(value = "когда съедено: ISO-8601 в локальном времени пользователя, например 2025-03-01T13:30; пусто = сейчас", required = false) String eatenAt,
             @P(value = "приём пищи: BREAKFAST, LUNCH, DINNER; если пользователь не назвал завтрак/обед/ужин — не передавай (будет OTHER)", required = false) String mealType) {
-        return run(() -> {
+        return runOnce("log_meal", () -> {
             if (dishVersionId == null || grams == null) {
                 return "Ошибка: dishVersionId и grams обязательны.";
             }
@@ -240,7 +240,7 @@ public class AgentTools {
             ctx.added(e.nutrition());
             ctx.reference(RecordRef.Kind.MEAL, e.id());
             return "Записано: " + describe(e);
-        });
+        }, dishVersionId, grams, eatenAt, mealType);
     }
 
     @Tool(name = "log_estimate", value = "Записывает приём пищи по ОЦЕНКЕ (значения на 100 г), когда блюда нет в памяти. В память блюд не попадает и помечается как приблизительная. "
@@ -257,7 +257,7 @@ public class AgentTools {
             @P(value = "допущения оценки", required = false) String assumptions,
             @P(value = "когда съедено, ISO-8601 локальное время; пусто = сейчас", required = false) String eatenAt,
             @P(value = "приём пищи: BREAKFAST, LUNCH, DINNER; если пользователь не назвал завтрак/обед/ужин — не передавай (будет OTHER)", required = false) String mealType) {
-        return run(() -> {
+        return runOnce("log_estimate", () -> {
             if (name == null || name.isBlank() || grams == null || kcalPer100g == null || proteinPer100g == null
                     || fatPer100g == null || carbsPer100g == null) {
                 return "Ошибка: name, grams, kcalPer100g, proteinPer100g, fatPer100g, carbsPer100g обязательны.";
@@ -281,7 +281,7 @@ public class AgentTools {
             ctx.added(e.nutrition());
             ctx.reference(RecordRef.Kind.MEAL, e.id());
             return "Записано по оценке: " + describe(e);
-        });
+        }, name, grams, kcalPer100g, proteinPer100g, fatPer100g, carbsPer100g, eatenAt, mealType);
     }
 
     @Tool(name = "update_meal_entry", value = "Правит СВОЮ запись дневника: граммы (значения пересчитываются пропорционально), время и/или итоговые значения порции. "
@@ -396,7 +396,7 @@ public class AgentTools {
                               @P(value = "LOW, MEDIUM или HIGH", required = false) String confidence,
                               @P(value = "допущения оценки (интенсивность, источник MET)", required = false) String assumptions,
                               @P(value = "дата YYYY-MM-DD, пусто = сегодня", required = false) String date) {
-        return run(() -> {
+        return runOnce("log_activity", () -> {
             if (minutes == null) {
                 return "Ошибка: нужна длительность в минутах (если не названа — уточни у пользователя).";
             }
@@ -409,7 +409,7 @@ public class AgentTools {
             return String.format(Locale.ROOT, "Записано: id=%d «%s», %s мин, %s ккал%s. Блок «Расход и баланс» бот добавит сам, цифры не пересказывай.",
                     e.id(), e.name(), SummaryFormatter.num(e.minutes()), SummaryFormatter.num(e.kcal()),
                     e.met() == null ? "" : " (MET " + SummaryFormatter.num(e.met()) + ")");
-        });
+        }, name, minutes, met, kcal, date);
     }
 
     @Tool(name = "deactivate_activity", value = "Мягко убирает СВОЮ активность по id (id виден в блоке «Расход и баланс» и в ответе log_activity).")
@@ -498,6 +498,26 @@ public class AgentTools {
         }
         String warn = "не прошло проверку: " + vr.message();
         return base.isEmpty() ? warn : base + "; " + warn;
+    }
+
+    /** Как run, но запись с теми же аргументами, уже выполненная в прошлой попытке LLM этого хода, не повторяется. */
+    private String runOnce(String tool, Supplier<String> body, Object... args) {
+        StringBuilder key = new StringBuilder(tool);
+        for (Object a : args) {
+            key.append('|').append(a instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : String.valueOf(a));
+        }
+        String k = key.toString();
+        return run(() -> {
+            String prev = ctx.replay(k);
+            if (prev != null) {
+                return "Уже выполнено ранее в этом ходе, повторно не записываю. " + prev;
+            }
+            String result = body.get();
+            if (!result.startsWith("Ошибка")) {
+                ctx.remember(k, result);
+            }
+            return result;
+        });
     }
 
     private String run(Supplier<String> body) {
